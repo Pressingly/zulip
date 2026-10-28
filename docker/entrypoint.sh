@@ -18,6 +18,7 @@ ZULIP_SECRETS=/etc/zulip/zulip-secrets.conf
 BAKED_CONF=/etc/zulip/zulip.conf.baked
 APPLIED_CONF=/etc/zulip/zulip.conf.applied
 BUILD_ID="$(cat "$DEPLOY_ROOT/build_id")"
+MIGRATION_MANIFEST=/usr/local/share/zulip/migration-manifest
 
 BOOT_STARTED_MS="$(date +%s%3N)"
 PHASE_STARTED_MS="$BOOT_STARTED_MS"
@@ -251,18 +252,36 @@ waitForDatabase() {
     done
 }
 
-# Provisioning runs these explicitly; at boot they only run when this
-# image has not migrated the database yet.
 migrateDatabase() {
     echo "Running database migrations ..."
     runAsZulip "$DEPLOY_ROOT/manage.py migrate --noinput"
     runAsZulip "$DEPLOY_ROOT/manage.py createcachetable third_party_api_results"
-    echo "$BUILD_ID" >"$DATA_DIR/.migrated-build-id"
 }
 
-migrateIfNewImage() {
-    if [ "$(cat "$DATA_DIR/.migrated-build-id" 2>/dev/null)" = "$BUILD_ID" ]; then
-        echo "Database already migrated by this image; skipping migrations."
+psqlAsZulip() {
+    PGPASSWORD="$(crudini --get "$ZULIP_SECRETS" secrets postgres_password 2>/dev/null || true)" \
+        PGSSLMODE="${SETTING_REMOTE_POSTGRES_SSLMODE:-prefer}" PGCONNECT_TIMEOUT=5 \
+        psql -h "${SETTING_REMOTE_POSTGRES_HOST:-127.0.0.1}" -p "${SETTING_REMOTE_POSTGRES_PORT:-5432}" \
+        -U "$(crudini --get "$ZULIP_CONF" postgresql database_user 2>/dev/null || echo zulip)" \
+        -d "$(crudini --get "$ZULIP_CONF" postgresql database_name 2>/dev/null || echo zulip)" \
+        -v ON_ERROR_STOP=1 -qAt -c "$1"
+}
+
+# The schema lives in the shared database, not in this container or its
+# volume, so ask the database: every migration this image ships must be
+# recorded there, and the cache table must exist. Any error counts as "no".
+databaseMatchesImage() {
+    local state
+    state="$(psqlAsZulip "SELECT app || '.' || name FROM django_migrations
+        UNION ALL SELECT '#cache-table' FROM pg_tables WHERE tablename = 'third_party_api_results'")" ||
+        return 1
+    grep -qx '#cache-table' <<<"$state" || return 1
+    [ -z "$(LC_ALL=C comm -23 "$MIGRATION_MANIFEST" <(LC_ALL=C sort <<<"$state"))" ]
+}
+
+migrateIfNeeded() {
+    if databaseMatchesImage; then
+        echo "Database has every migration this image ships; skipping migrations."
         return
     fi
     migrateDatabase
@@ -283,7 +302,7 @@ initialConfiguration() {
     phaseDone check
     waitForDatabase
     phaseDone wait-db
-    migrateIfNewImage
+    migrateIfNeeded
     phaseDone migrate
 }
 
