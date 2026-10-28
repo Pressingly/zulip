@@ -351,6 +351,8 @@ def update_user_backend(
 
     if new_email is not None and target.delivery_email != new_email:
         assert user_profile.can_change_user_emails and user_profile.is_realm_admin
+        if settings.MPASS_SSO:
+            raise JsonableError(_("Email addresses are managed by your sign-in provider."))
         try:
             validators.validate_email(new_email)
         except ValidationError:

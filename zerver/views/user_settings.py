@@ -86,6 +86,10 @@ def validate_email_change_request(user_profile: UserProfile, new_email: str) -> 
     if not user_profile.is_active:
         raise UserDeactivatedError
 
+    if settings.MPASS_SSO:
+        # mPass owns the address: a changed email no longer matches the
+        # edge identity, so the next sign-in would create a second account.
+        raise JsonableError(_("Email addresses are managed by your sign-in provider."))
     if user_profile.realm.email_changes_disabled and not user_profile.is_realm_admin:
         raise JsonableError(_("Email address changes are disabled in this organization."))
 

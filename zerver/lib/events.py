@@ -551,6 +551,7 @@ def fetch_initial_state_data(
             for thumbnail_format in THUMBNAIL_OUTPUT_FORMATS
         ]
         state["server_avatar_changes_disabled"] = settings.AVATAR_CHANGES_DISABLED
+        state["server_email_changes_disabled"] = settings.MPASS_SSO
         state["server_name_changes_disabled"] = settings.NAME_CHANGES_DISABLED
         state["server_web_public_streams_enabled"] = settings.WEB_PUBLIC_STREAMS_ENABLED
         state["gif_rating_policy_options"] = realm.get_gif_rating_policy_options()

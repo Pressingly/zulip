@@ -21550,6 +21550,14 @@ paths:
                           Whether the server allows avatar changes. Similar to
                           `realm_avatar_changes_disabled` but based on the `AVATAR_CHANGES_DISABLED`
                           Zulip server level setting.
+                      server_email_changes_disabled:
+                        type: boolean
+                        description: |
+                          Present if `realm` is present in `fetch_event_types`.
+
+                          Whether the server forbids email address changes for every user,
+                          administrators included. True when sign-in is mPass SSO, where the
+                          identity provider owns the address (Pressingly fork).
                       server_name_changes_disabled:
                         type: boolean
                         description: |

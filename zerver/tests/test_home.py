@@ -249,6 +249,7 @@ class HomeTest(ZulipTestCase):
         "scheduled_messages",
         "server_avatar_changes_disabled",
         "server_can_summarize_topics",
+        "server_email_changes_disabled",
         "server_emoji_data_url",
         "server_generation",
         "server_inline_image_preview",
