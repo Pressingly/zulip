@@ -39,6 +39,7 @@ LABEL org.opencontainers.image.licenses="Apache-2.0"
 LABEL org.opencontainers.image.title="Zulip Server (Moneta FOSS bundle)"
 
 COPY --from=build /tmp/zulip-server-docker.tar.gz /root/
+COPY docker/bake-zulip-conf.sh /root/bake-zulip-conf.sh
 
 WORKDIR /root
 RUN dpkg-divert --add --rename /etc/init.d/nginx && \
@@ -49,7 +50,8 @@ RUN dpkg-divert --add --rename /etc/init.d/nginx && \
     mv zulip-server-docker zulip && \
     /root/zulip/scripts/setup/install --hostname="docker-zulip.local" --email="docker-zulip" \
       --puppet-classes="zulip::profile::docker" --postgresql-version=17 && \
-    rm -f /etc/zulip/zulip-secrets.conf /etc/zulip/settings.py && \
+    /root/bake-zulip-conf.sh && \
+    rm -f /etc/zulip/zulip-secrets.conf /etc/zulip/settings.py /root/bake-zulip-conf.sh && \
     touch /.dockerenv && \
     apt-get -qq autoremove --purge -y && \
     apt-get -qq clean && \
