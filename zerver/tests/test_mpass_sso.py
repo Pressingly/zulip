@@ -4,7 +4,11 @@ from unittest import mock
 
 from django.test import override_settings
 
-from zerver.lib.mpass_sso import access_token_claims, mpass_identity_to_email
+from zerver.lib.mpass_sso import (
+    access_token_claims,
+    is_placeholder_address,
+    mpass_identity_to_email,
+)
 from zerver.lib.test_classes import ZulipTestCase
 
 EDGE_SECRET = "s" * 32
@@ -212,3 +216,14 @@ class MpassLogoutTest(MpassSSOTestCase):
             result = self.client_post("/accounts/logout/")
         self.assertEqual(result.status_code, 302)
         self.assertNotEqual(result["Location"], "https://portal.example.com")
+
+
+class MpassPlaceholderAddressTest(MpassSSOTestCase):
+    def test_placeholder_addresses(self) -> None:
+        with self.mpass_settings(MPASS_DEFAULT_EMAIL_DOMAIN="askii.ai"):
+            self.assertTrue(is_placeholder_address("1020010000019120@askii.ai"))
+            self.assertTrue(is_placeholder_address("Some One <1020010000019120@ASKII.ai>"))
+            self.assertFalse(is_placeholder_address("hamlet@zulip.com"))
+            self.assertFalse(is_placeholder_address("someone@notaskii.ai"))
+        with self.settings(MPASS_SSO=False, MPASS_DEFAULT_EMAIL_DOMAIN="askii.ai"):
+            self.assertFalse(is_placeholder_address("1020010000019120@askii.ai"))

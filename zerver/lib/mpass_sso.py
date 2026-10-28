@@ -7,6 +7,7 @@ import binascii
 import hmac
 import json
 from collections.abc import Callable
+from email.utils import parseaddr
 
 from django.conf import settings
 from django.contrib.auth import logout
@@ -53,6 +54,15 @@ def mpass_identity_to_email(identity: str) -> str | None:
     if domain == "":
         return None
     return f"{value}@{domain}"
+
+
+def is_placeholder_address(address: str) -> bool:
+    # Bare mPass ids become <id>@MPASS_DEFAULT_EMAIL_DOMAIN, a domain
+    # nobody receives mail at.
+    domain = settings.MPASS_DEFAULT_EMAIL_DOMAIN.strip().lower()
+    if not settings.MPASS_SSO or domain == "":
+        return False
+    return parseaddr(address)[1].lower().endswith(f"@{domain}")
 
 
 def asserted_email(request: HttpRequest) -> str | None:
