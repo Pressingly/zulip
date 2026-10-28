@@ -4,6 +4,7 @@ import _ from "lodash";
 import * as blueslip from "./blueslip.ts";
 import * as channel from "./channel.ts";
 import * as echo from "./echo.ts";
+import * as edge_sign_in from "./edge_sign_in.ts";
 import * as loading from "./loading.ts";
 import * as message_events from "./message_events.ts";
 import {page_params} from "./page_params.ts";
@@ -149,6 +150,34 @@ function get_events_success(events) {
     }
 }
 
+function open_connection_error_banner(retry_delay_secs) {
+    popup_banners.open_connection_error_popup_banner({
+        caller: "server_events",
+        retry_delay_secs,
+        on_retry_callback() {
+            restart_get_events({dont_block: true});
+        },
+    });
+}
+
+function schedule_get_events_retry(retry_delay_secs) {
+    if (get_events_failures >= 8) {
+        open_connection_error_banner(retry_delay_secs);
+    }
+    get_events_timeout = setTimeout(get_events, retry_delay_secs * 1000);
+}
+
+export async function handle_get_events_network_error(retry_delay_secs) {
+    const verdict = await edge_sign_in.verdict_after_network_error();
+    if (verdict === "reload") {
+        reload.initiate({immediate: true, save_compose: true});
+    } else if (verdict === "blocked") {
+        open_connection_error_banner(retry_delay_secs);
+    } else {
+        schedule_get_events_retry(retry_delay_secs);
+    }
+}
+
 function get_events({dont_block = false} = {}) {
     if (reload_state.is_in_progress()) {
         return;
@@ -229,20 +258,15 @@ function get_events({dont_block = false} = {}) {
                     get_events_failures += 1;
                 }
 
-                if (get_events_failures >= 8) {
-                    popup_banners.open_connection_error_popup_banner({
-                        caller: "server_events",
-                        retry_delay_secs,
-                        on_retry_callback() {
-                            restart_get_events({dont_block: true});
-                        },
-                    });
+                if (xhr.status === 0 && error_type === "error") {
+                    void handle_get_events_network_error(retry_delay_secs);
+                    return;
                 }
             } catch (error) {
                 blueslip.error("Failed to handle get_events error", undefined, error);
             }
 
-            get_events_timeout = setTimeout(get_events, retry_delay_secs * 1000);
+            schedule_get_events_retry(retry_delay_secs);
         },
     });
 }

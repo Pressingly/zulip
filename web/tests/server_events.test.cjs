@@ -23,8 +23,17 @@ page_params.test_suite = false;
 // we also directly write to pointer
 set_global("pointer", {});
 
-mock_esm("../src/popup_banners", {
+const popup_banners = mock_esm("../src/popup_banners", {
     close_connection_error_popup_banner() {},
+    open_connection_error_popup_banner() {},
+});
+const edge_sign_in = mock_esm("../src/edge_sign_in", {
+    async verdict_after_network_error() {
+        return "retry";
+    },
+});
+const reload = mock_esm("../src/reload", {
+    initiate() {},
 });
 
 mock_esm("../src/stream_events", {
@@ -159,4 +168,44 @@ run_test("event_edit_message_error", () => {
     const logs = blueslip.get_test_logs("error");
     assert.equal(logs.length, 1);
     assert.equal(logs[0].more_info, undefined);
+});
+
+run_test("network error after the edge session ended reloads the tab", async ({override}) => {
+    override(edge_sign_in, "verdict_after_network_error", async () => "reload");
+    let reload_options;
+    override(reload, "initiate", (options) => {
+        reload_options = options;
+    });
+
+    await server_events.handle_get_events_network_error(4);
+
+    assert.deepEqual(reload_options, {immediate: true, save_compose: true});
+});
+
+run_test("a blocked edge reload stops polling and shows the banner", async ({override}) => {
+    override(edge_sign_in, "verdict_after_network_error", async () => "blocked");
+    let banner_options;
+    override(popup_banners, "open_connection_error_popup_banner", (options) => {
+        banner_options = options;
+    });
+    set_global("setTimeout", () => {
+        throw new Error("get_events must not be rescheduled");
+    });
+
+    await server_events.handle_get_events_network_error(4);
+
+    assert.equal(banner_options.caller, "server_events");
+    assert.equal(banner_options.retry_delay_secs, 4);
+});
+
+run_test("a real network error keeps retrying", async ({override}) => {
+    override(edge_sign_in, "verdict_after_network_error", async () => "retry");
+    let scheduled_delay_ms;
+    set_global("setTimeout", (_f, delay_ms) => {
+        scheduled_delay_ms = delay_ms;
+    });
+
+    await server_events.handle_get_events_network_error(4);
+
+    assert.equal(scheduled_delay_ms, 4000);
 });
