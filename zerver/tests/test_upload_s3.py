@@ -251,9 +251,7 @@ class S3Test(ZulipTestCase):
         self.login("hamlet")
         fp = StringIO("zulip!")
         fp.name = "zulip.txt"
-        url = self.assert_json_success(self.client_post("/json/user_uploads", {"file": fp}))[
-            "url"
-        ]
+        url = self.assert_json_success(self.client_post("/json/user_uploads", {"file": fp}))["url"]
 
         signed_url = "http://seaweedfs:8333/uploads/1/ab/zulip%20file.txt?X-Amz-Signature=abc"
         with (

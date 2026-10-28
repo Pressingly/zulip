@@ -37,7 +37,9 @@ class MpassSSOTestCase(ZulipTestCase):
 class MpassIdentityToEmailTest(ZulipTestCase):
     def test_bare_mpass_id_gets_default_domain(self) -> None:
         with self.settings(MPASS_DEFAULT_EMAIL_DOMAIN="Example.COM"):
-            self.assertEqual(mpass_identity_to_email(" 1020010000019120 "), "1020010000019120@example.com")
+            self.assertEqual(
+                mpass_identity_to_email(" 1020010000019120 "), "1020010000019120@example.com"
+            )
 
     def test_email_is_kept_and_lowercased(self) -> None:
         with self.settings(MPASS_DEFAULT_EMAIL_DOMAIN="example.com"):
@@ -95,7 +97,7 @@ class MpassSSOLoginTest(MpassSSOTestCase):
     def test_corporate_gate(self) -> None:
         hamlet = self.example_user("hamlet")
         email = hamlet.delivery_email
-        cases = [
+        cases: list[tuple[dict[str, object], int]] = [
             ({"custom:is_corporate": "true", "custom:corporate_id": "acme"}, 302),
             ({"custom:is_corporate": True, "custom:corporate_id": "acme"}, 302),
             ({"custom:is_corporate": "false", "custom:corporate_id": "acme"}, 403),
