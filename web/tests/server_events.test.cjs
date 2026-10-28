@@ -26,6 +26,7 @@ set_global("pointer", {});
 const popup_banners = mock_esm("../src/popup_banners", {
     close_connection_error_popup_banner() {},
     open_connection_error_popup_banner() {},
+    open_sign_in_expired_popup_banner() {},
 });
 const edge_sign_in = mock_esm("../src/edge_sign_in", {
     async verdict_after_network_error() {
@@ -182,20 +183,49 @@ run_test("network error after the edge session ended reloads the tab", async ({o
     assert.deepEqual(reload_options, {immediate: true, save_compose: true});
 });
 
-run_test("a blocked edge reload stops polling and shows the banner", async ({override}) => {
+run_test("a blocked edge reload stops polling and offers a reload", async ({override}) => {
     override(edge_sign_in, "verdict_after_network_error", async () => "blocked");
-    let banner_options;
-    override(popup_banners, "open_connection_error_popup_banner", (options) => {
-        banner_options = options;
+    let on_reload;
+    override(popup_banners, "open_sign_in_expired_popup_banner", (callback) => {
+        on_reload = callback;
     });
     set_global("setTimeout", () => {
         throw new Error("get_events must not be rescheduled");
     });
+    channel.get = () => {
+        throw new Error("polling must stay stopped");
+    };
 
     await server_events.handle_get_events_network_error(4);
+    server_events.assert_get_events_running("compose sent a message");
 
-    assert.equal(banner_options.caller, "server_events");
-    assert.equal(banner_options.retry_delay_secs, 4);
+    let reload_options;
+    override(reload, "initiate", (options) => {
+        reload_options = options;
+    });
+    on_reload();
+    assert.deepEqual(reload_options, {immediate: true, save_compose: true});
+});
+
+run_test("polling is not restarted while the edge probe is pending", async ({override}) => {
+    let finish_probe;
+    override(
+        edge_sign_in,
+        "verdict_after_network_error",
+        () =>
+            new Promise((resolve) => {
+                finish_probe = resolve;
+            }),
+    );
+    channel.get = () => {
+        throw new Error("polling must wait for the probe");
+    };
+    set_global("setTimeout", noop);
+
+    const handled = server_events.handle_get_events_network_error(4);
+    server_events.assert_get_events_running("compose sent a message");
+    finish_probe("retry");
+    await handled;
 });
 
 run_test("a real network error keeps retrying", async ({override}) => {

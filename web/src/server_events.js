@@ -34,6 +34,11 @@ const get_events_params = {};
 
 let event_queue_expired = false;
 
+// While a status-0 events error is being checked against the sign-on
+// edge, and after the edge is found to block this tab, polling is
+// stopped on purpose; assert_get_events_running must not restart it.
+let edge_sign_in_state = "none";
+
 function get_events_success(events) {
     let raw_messages = [];
     const update_message_events = [];
@@ -167,13 +172,20 @@ function schedule_get_events_retry(retry_delay_secs) {
     get_events_timeout = setTimeout(get_events, retry_delay_secs * 1000);
 }
 
+function reload_after_edge_sign_in() {
+    reload.initiate({immediate: true, save_compose: true});
+}
+
 export async function handle_get_events_network_error(retry_delay_secs) {
+    edge_sign_in_state = "probing";
     const verdict = await edge_sign_in.verdict_after_network_error();
     if (verdict === "reload") {
-        reload.initiate({immediate: true, save_compose: true});
+        reload_after_edge_sign_in();
     } else if (verdict === "blocked") {
-        open_connection_error_banner(retry_delay_secs);
+        edge_sign_in_state = "blocked";
+        popup_banners.open_sign_in_expired_popup_banner(reload_after_edge_sign_in);
     } else {
+        edge_sign_in_state = "none";
         schedule_get_events_retry(retry_delay_secs);
     }
 }
@@ -272,6 +284,9 @@ function get_events({dont_block = false} = {}) {
 }
 
 export function assert_get_events_running(error_message) {
+    if (edge_sign_in_state !== "none") {
+        return;
+    }
     if (get_events_xhr === undefined && get_events_timeout === undefined) {
         restart_get_events({dont_block: true});
         blueslip.error(error_message);
