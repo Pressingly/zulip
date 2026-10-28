@@ -246,6 +246,27 @@ class S3Test(ZulipTestCase):
         self.assertEqual(sorted(found_paths), sorted(path_ids))
 
     @use_s3_backend
+    def test_user_uploads_internal_http_endpoint(self) -> None:
+        create_s3_buckets(settings.S3_AUTH_UPLOADS_BUCKET)
+        self.login("hamlet")
+        fp = StringIO("zulip!")
+        fp.name = "zulip.txt"
+        url = self.assert_json_success(self.client_post("/json/user_uploads", {"file": fp}))[
+            "url"
+        ]
+
+        signed_url = "http://seaweedfs:8333/uploads/1/ab/zulip%20file.txt?X-Amz-Signature=abc"
+        with (
+            self.settings(DEVELOPMENT=False),
+            patch("zerver.views.upload.get_signed_upload_url", return_value=signed_url),
+        ):
+            response = self.client_get(url)
+        self.assertEqual(
+            response["X-Accel-Redirect"],
+            "/internal/s3-http/seaweedfs:8333/uploads/1/ab/zulip%2520file.txt?X-Amz-Signature=abc",
+        )
+
+    @use_s3_backend
     def test_user_uploads_authed(self) -> None:
         """
         A call to /json/user_uploads should return a url and actually create an object.
