@@ -1,15 +1,23 @@
 import base64
 import json
+from typing import TYPE_CHECKING
 from unittest import mock
 
 from django.test import override_settings
 
+from zerver.lib.mpass_names import FALLBACK_NAME, display_name_for_email
 from zerver.lib.mpass_sso import (
     access_token_claims,
     is_placeholder_address,
     mpass_identity_to_email,
 )
 from zerver.lib.test_classes import ZulipTestCase
+from zerver.models import PreregistrationUser, UserProfile
+from zerver.models.realms import get_realm
+from zerver.models.users import get_user_by_delivery_email
+
+if TYPE_CHECKING:
+    from django.test.client import _MonkeyPatchedWSGIResponse as TestHttpResponse
 
 EDGE_SECRET = "s" * 32
 SSO_ONLY_BACKENDS = (
@@ -229,3 +237,85 @@ class MpassPlaceholderAddressTest(MpassSSOTestCase):
             self.assertFalse(is_placeholder_address("someone@notaskii.ai"))
         with self.settings(MPASS_SSO=False, MPASS_DEFAULT_EMAIL_DOMAIN="askii.ai"):
             self.assertFalse(is_placeholder_address("1020010000019120@askii.ai"))
+
+
+class MpassDisplayNameTest(ZulipTestCase):
+    def test_local_part_is_the_name(self) -> None:
+        self.assertEqual(display_name_for_email("jane.doe@example.com"), "jane.doe")
+        self.assertEqual(display_name_for_email("1020010000019120@askii.ai"), "1020010000019120")
+
+    def test_characters_check_full_name_rejects_are_dropped(self) -> None:
+        self.assertEqual(display_name_for_email('"j*a`n>e"@example.com'), "jane")
+        self.assertEqual(display_name_for_email("jane|12@example.com"), "jane")
+        self.assertEqual(display_name_for_email("jane|1|2@example.com"), "jane")
+        self.assertEqual(display_name_for_email("ja\x00ne@example.com"), "jane")
+
+    def test_long_local_part_is_truncated(self) -> None:
+        name = display_name_for_email("a" * 150 + "@example.com")
+        self.assertEqual(len(name), UserProfile.MAX_NAME_LENGTH)
+
+    def test_unusable_local_part_falls_back(self) -> None:
+        self.assertEqual(display_name_for_email("***@example.com"), "at example.com")
+        self.assertEqual(display_name_for_email("@"), FALLBACK_NAME)
+        self.assertEqual(display_name_for_email("1020010000019120"), "1020010000019120")
+        self.assertEqual(display_name_for_email(""), FALLBACK_NAME)
+
+
+class MpassFirstSignInTest(MpassSSOTestCase):
+    def sign_in(self, email: str, **headers: str) -> "TestHttpResponse":
+        return self.client_get(
+            "/accounts/login/sso/", REMOTE_USER=email, HTTP_X_AUTH_REQUEST_EMAIL=email, **headers
+        )
+
+    def complete_registration(self, result: "TestHttpResponse") -> "TestHttpResponse":
+        self.assertEqual(result.status_code, 302)
+        self.assertIn("/accounts/do_confirm/", result["Location"])
+        confirm_page = self.client_get(result["Location"])
+        self.assert_in_response('action="/accounts/register/"', confirm_page)
+        key = result["Location"].split("/accounts/do_confirm/")[1].split("?")[0]
+        return self.client_post("/accounts/register/", {"from_confirmation": "1", "key": key})
+
+    def assert_nothing_created(self, email: str) -> None:
+        self.assertFalse(PreregistrationUser.objects.filter(email__iexact=email).exists())
+        self.assertFalse(UserProfile.objects.filter(delivery_email__iexact=email).exists())
+
+    def test_first_sign_in_creates_the_account(self) -> None:
+        realm = get_realm("zulip")
+        email = "new.person@zulip.com"
+        with self.mpass_settings():
+            result = self.complete_registration(self.sign_in(email))
+        self.assertEqual(result.status_code, 302)
+        user = get_user_by_delivery_email(email, realm)
+        self.assertEqual(user.full_name, "new.person")
+        self.assertEqual(user.role, UserProfile.ROLE_MEMBER)
+        self.assertFalse(user.has_usable_password())
+        self.assert_logged_in_user_id(user.id)
+
+        self.client_post("/accounts/logout/")
+        with self.mpass_settings():
+            result = self.sign_in(email)
+        self.assertEqual(result.status_code, 302)
+        self.assertNotIn("do_confirm", result["Location"])
+        self.assert_logged_in_user_id(user.id)
+        self.assertEqual(UserProfile.objects.filter(delivery_email__iexact=email).count(), 1)
+
+    def test_unusable_local_part_registers_with_the_fallback(self) -> None:
+        email = "***@zulip.com"
+        with self.mpass_settings():
+            self.complete_registration(self.sign_in(email))
+        user = get_user_by_delivery_email(email, get_realm("zulip"))
+        self.assertEqual(user.full_name, "at zulip.com")
+
+    def test_refused_sign_in_creates_nothing(self) -> None:
+        email = "refused.person@zulip.com"
+        wrong_tenant = access_token({"custom:is_corporate": "true", "custom:corporate_id": "other"})
+        with self.mpass_settings(MPASS_SMB_CORPORATE_ID="acme"):
+            result = self.sign_in(email, HTTP_X_AUTH_REQUEST_ACCESS_TOKEN=wrong_tenant)
+        self.assertEqual(result.status_code, 403)
+        with (
+            self.mpass_settings(),
+            mock.patch("zerver.lib.mpass_sso.configured_edge_secret", return_value=EDGE_SECRET),
+        ):
+            result = self.sign_in(email)
+        self.assertEqual(result.status_code, 403)
+        self.assert_nothing_created(email)

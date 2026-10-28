@@ -57,6 +57,7 @@ from zerver.lib.exceptions import (
     UserDeactivatedError,
 )
 from zerver.lib.mobile_auth_otp import otp_encrypt_api_key
+from zerver.lib.mpass_names import display_name_for_email
 from zerver.lib.mpass_sso import sso_login_refusal
 from zerver.lib.push_notifications import push_notifications_configured
 from zerver.lib.pysa import mark_sanitized
@@ -628,6 +629,12 @@ def remote_user_sso(
         data_dict["subdomain"] = realm.subdomain
     else:
         data_dict["subdomain"] = ""  # realm creation happens on root subdomain
+    if settings.MPASS_SSO:
+        # mPass has already verified the address, so a first sign-in
+        # creates the account directly instead of asking for a name.
+        data_dict["full_name"] = display_name_for_email(email)
+        data_dict["full_name_validated"] = True
+        data_dict["is_signup"] = True
     result = ExternalAuthResult(user_profile=user_profile, data_dict=data_dict)
     return login_or_register_remote_user(request, result)
 

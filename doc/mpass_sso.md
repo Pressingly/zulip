@@ -26,8 +26,14 @@ browser ──> traefik ──(ForwardAuth)──> oauth2-proxy ──> mpass-au
   installed by `zulip::profile::docker`). No other path, and no client header, can set
   `REMOTE_USER`.
 - **Existing user:** signed in and sent to `next`.
-- **New user:** Zulip's own registration form, where the user types a display name (mPass sends
-  no name claim). The organization must have `invite_required=False`.
+- **New user:** the account is created on the first sign-in, with no "account not found" page
+  and no name form. The display name starts as the part of the email before the `@`
+  (`zerver/lib/mpass_names.py`); users change it in settings, so the organization must keep
+  `name_changes_disabled` off. The request goes through Zulip's own signup checks
+  (`invite_required=False`, allowed domains, no disposable addresses) and its standard
+  confirmation step, a page that posts itself (`full_name_validated`, `is_signup`), so nothing
+  asks the user anything. The corporate gate and the edge secret run before any of this: a
+  refused sign-in creates no `PreregistrationUser` or `UserProfile`.
 - **Identity switch.** `MpassIdentitySwitchMiddleware` (after Django's `AuthenticationMiddleware`)
   compares the edge identity with the session user on every request, Tornado's long-poll
   included. A different identity logs the Zulip session out, so the next page load signs the new
@@ -95,6 +101,12 @@ shorter than 32 characters trusts nothing.
   `<value>@${MPASS_DEFAULT_EMAIL_DOMAIN}`. The check is index-based, never a regex
   (`zerver/lib/mpass_sso.py`). Stock `SSO_APPEND_DOMAIN` is not used: it appends to every value
   and breaks real emails.
+- The starting display name is the email's local part with the characters `check_full_name`
+  rejects removed (`*`, `` ` ``, `\`, `>`, `"`, `@`, control characters, a trailing `|<digits>`),
+  cut to 100 characters. If nothing is left it falls back to `<local part> at <domain>`
+  (an `@` is never valid in a name), then to `mPass user`. A bare mPass id's name is the id. The
+  name is never used for roles or tenancy. In an organization with "unique names" on, a taken
+  name sends the user to Zulip's name form instead.
 - New users get Zulip's default role (member). Owners come from the organization's creation and
   `manage.py change_user_role <email> owner -r ''`.
 - Mail to `@MPASS_DEFAULT_EMAIL_DOMAIN` placeholder addresses is never sent
