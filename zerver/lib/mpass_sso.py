@@ -19,6 +19,9 @@ from zproject.config import get_secret
 EMAIL_HEADER = "HTTP_X_AUTH_REQUEST_EMAIL"
 ACCESS_TOKEN_HEADER = "HTTP_X_AUTH_REQUEST_ACCESS_TOKEN"
 EDGE_SECRET_HEADER = "HTTP_X_MPASS_EDGE_SECRET"
+# Set by nginx (zulip-include-app.d/mpass-sso.conf) whenever it derives
+# REMOTE_USER from the edge's identity header.
+REMOTE_USER_FROM_EDGE = "MPASS_REMOTE_USER_FROM_EDGE"
 MIN_EDGE_SECRET_LENGTH = 32
 
 
@@ -86,7 +89,9 @@ def access_token_claims(token: str) -> dict[str, object] | None:
 def corporate_tenant_allowed(request: HttpRequest) -> bool:
     required_corporate_id = settings.MPASS_SMB_CORPORATE_ID.strip()
     if required_corporate_id == "":
-        return settings.MPASS_ALLOW_ANY_TENANT
+        # Only a real True opens the gate: a string such as "no" from a
+        # misconfigured environment must not.
+        return settings.MPASS_ALLOW_ANY_TENANT is True
     claims = access_token_claims(request.META.get(ACCESS_TOKEN_HEADER, ""))
     return (
         claims is not None
@@ -96,6 +101,12 @@ def corporate_tenant_allowed(request: HttpRequest) -> bool:
 
 
 def sso_login_refusal(request: HttpRequest) -> HttpResponse | None:
+    if not settings.MPASS_SSO:
+        # This image's nginx always maps the edge header to REMOTE_USER;
+        # without MPASS_SSO there is no gate behind it, so refuse.
+        if request.META.get(REMOTE_USER_FROM_EDGE) == "1":
+            return render(request, "zerver/mpass_access_denied.html", status=403)
+        return None
     # The access token is decoded without verification: oauth2-proxy
     # validated it before the request reached us, and the edge secret
     # (when set) proves it came through that ForwardAuth hop.

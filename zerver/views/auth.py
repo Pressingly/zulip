@@ -590,10 +590,9 @@ def remote_user_sso(
     if not auth_enabled_helper([ZulipRemoteUserBackend.auth_backend_name], realm):
         return config_error(request, "remote_user_backend_disabled")
 
-    if settings.MPASS_SSO:
-        refusal = sso_login_refusal(request)
-        if refusal is not None:
-            return refusal
+    refusal = sso_login_refusal(request)
+    if refusal is not None:
+        return refusal
 
     try:
         remote_user = request.META["REMOTE_USER"]
