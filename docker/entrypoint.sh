@@ -56,6 +56,19 @@ prepareDirectories() {
     chown zulip:zulip -R "$DATA_DIR/uploads"
 }
 
+# The email gateway runs as root and imports Django, so whichever process
+# opens a log first owns it; upstream hides that behind a boot-time
+# `manage.py check` run as zulip. Owning Django's logs up front lets the
+# check be skipped without root taking a log the zulip workers need.
+prepareLogFiles() {
+    local log_file
+    grep -ho '/var/log/zulip/[A-Za-z0-9_.-]*\.log' "$DEPLOY_ROOT/zproject/computed_settings.py" | sort -u |
+        while read -r log_file; do
+            touch "$log_file"
+            chown zulip:zulip "$log_file"
+        done
+}
+
 applyConfigEnvironment() {
     cp "$BAKED_CONF" "$ZULIP_CONF"
     if [ -n "${LOADBALANCER_IPS:-}" ]; then
@@ -257,6 +270,7 @@ migrateIfNewImage() {
 
 initialConfiguration() {
     prepareDirectories
+    prepareLogFiles
     phaseDone prepare
     applyConfigEnvironment
     puppetConfiguration
