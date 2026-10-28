@@ -29,6 +29,7 @@ from zerver.lib.cache import (
     user_profile_by_id_cache_key,
     user_profile_narrow_by_id_cache_key,
 )
+from zerver.lib.mpass_sso import mpass_identity_to_email
 from zerver.lib.types import ProfileData, RawUserDict
 from zerver.lib.utils import generate_api_key
 from zerver.models.constants import MAX_LANGUAGE_ID_LENGTH
@@ -980,6 +981,8 @@ class PasswordTooWeakError(Exception):
 
 
 def remote_user_to_email(remote_user: str) -> str:
+    if settings.MPASS_SSO:
+        return mpass_identity_to_email(remote_user) or remote_user
     if settings.SSO_APPEND_DOMAIN is not None:
         return Address(username=remote_user, domain=settings.SSO_APPEND_DOMAIN).addr_spec
     return remote_user

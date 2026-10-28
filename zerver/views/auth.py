@@ -57,6 +57,7 @@ from zerver.lib.exceptions import (
     UserDeactivatedError,
 )
 from zerver.lib.mobile_auth_otp import otp_encrypt_api_key
+from zerver.lib.mpass_sso import sso_login_refusal
 from zerver.lib.push_notifications import push_notifications_configured
 from zerver.lib.pysa import mark_sanitized
 from zerver.lib.rate_limiter import readable_expiry_string_for_html
@@ -587,6 +588,11 @@ def remote_user_sso(
 
     if not auth_enabled_helper([ZulipRemoteUserBackend.auth_backend_name], realm):
         return config_error(request, "remote_user_backend_disabled")
+
+    if settings.MPASS_SSO:
+        refusal = sso_login_refusal(request)
+        if refusal is not None:
+            return refusal
 
     try:
         remote_user = request.META["REMOTE_USER"]
@@ -1304,6 +1310,12 @@ def should_do_saml_sp_initiated_logout(request: HttpRequest) -> bool:
 
 @require_post
 def logout_view(request: HttpRequest) -> HttpResponse:
+    if settings.MPASS_SSO and settings.MPASS_LOGOUT_REDIRECT_URL:
+        # Ending the mPass session is the portal's job; sending the
+        # user to Zulip's login page would sign them straight back in.
+        logout(request)
+        return HttpResponseRedirect(settings.MPASS_LOGOUT_REDIRECT_URL)
+
     if not should_do_saml_sp_initiated_logout(request):
         logout(request)
         return HttpResponseRedirect(settings.LOGIN_URL)
