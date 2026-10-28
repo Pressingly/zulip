@@ -3,8 +3,10 @@ import json
 from typing import TYPE_CHECKING
 from unittest import mock
 
+from django.conf import settings
 from django.test import override_settings
 
+from zerver.actions.users import do_change_can_change_user_emails
 from zerver.lib.mpass_names import FALLBACK_NAME, display_name_for_email
 from zerver.lib.mpass_sso import (
     access_token_claims,
@@ -40,6 +42,16 @@ class MpassSSOTestCase(ZulipTestCase):
             MPASS_ALLOW_ANY_TENANT=True,
             **overrides,
         )
+
+    def sso_login(self, user: UserProfile, **headers: str) -> None:
+        # Must run inside mpass_settings(): the session then records
+        # ZulipRemoteUserBackend, the only backend the views accept.
+        email = user.delivery_email
+        result = self.client_get(
+            "/accounts/login/sso/", REMOTE_USER=email, HTTP_X_AUTH_REQUEST_EMAIL=email, **headers
+        )
+        self.assertEqual(result.status_code, 302)
+        self.assert_logged_in_user_id(user.id)
 
 
 class MpassIdentityToEmailTest(ZulipTestCase):
@@ -173,59 +185,141 @@ class MpassSSOLoginTest(MpassSSOTestCase):
 
 class MpassIdentitySwitchTest(MpassSSOTestCase):
     def test_different_edge_identity_ends_the_session(self) -> None:
-        self.login("hamlet")
+        hamlet = self.example_user("hamlet")
         with self.mpass_settings():
-            self.client_get("/json/users/me", HTTP_X_AUTH_REQUEST_EMAIL="cordelia@zulip.com")
-        self.assert_logged_in_user_id(None)
+            self.sso_login(hamlet)
+            result = self.client_get(
+                "/json/users/me", HTTP_X_AUTH_REQUEST_EMAIL="cordelia@zulip.com"
+            )
+            self.assertEqual(result.status_code, 401)
+            self.assert_logged_in_user_id(None)
+            result = self.client_get(
+                "/json/users/me", HTTP_X_AUTH_REQUEST_EMAIL=hamlet.delivery_email
+            )
+        self.assertEqual(result.status_code, 401)
 
     def test_same_identity_keeps_the_session(self) -> None:
         hamlet = self.example_user("hamlet")
-        self.login_user(hamlet)
         with self.mpass_settings():
+            self.sso_login(hamlet)
             result = self.client_get("/json/users/me", HTTP_X_AUTH_REQUEST_EMAIL="HAMLET")
         self.assert_json_success(result)
         self.assert_logged_in_user_id(hamlet.id)
 
     def test_absent_header_keeps_the_session(self) -> None:
         hamlet = self.example_user("hamlet")
-        self.login_user(hamlet)
         with self.mpass_settings():
+            self.sso_login(hamlet)
             result = self.client_get("/json/users/me")
         self.assert_json_success(result)
         self.assert_logged_in_user_id(hamlet.id)
 
     def test_untrusted_header_is_ignored(self) -> None:
         hamlet = self.example_user("hamlet")
-        self.login_user(hamlet)
         with (
             self.mpass_settings(),
             mock.patch("zerver.lib.mpass_sso.configured_edge_secret", return_value=EDGE_SECRET),
         ):
-            self.client_get("/json/users/me", HTTP_X_AUTH_REQUEST_EMAIL="cordelia@zulip.com")
-        self.assert_logged_in_user_id(hamlet.id)
+            self.sso_login(hamlet, HTTP_X_MPASS_EDGE_SECRET=EDGE_SECRET)
+            result = self.client_get(
+                "/json/users/me", HTTP_X_AUTH_REQUEST_EMAIL="cordelia@zulip.com"
+            )
+            self.assert_json_success(result)
+            self.assert_logged_in_user_id(hamlet.id)
+            result = self.client_get(
+                "/json/users/me",
+                HTTP_X_AUTH_REQUEST_EMAIL="cordelia@zulip.com",
+                HTTP_X_MPASS_EDGE_SECRET=EDGE_SECRET,
+            )
+        self.assertEqual(result.status_code, 401)
+        self.assert_logged_in_user_id(None)
 
     def test_inactive_without_mpass_sso(self) -> None:
         hamlet = self.example_user("hamlet")
         self.login_user(hamlet)
-        self.client_get("/json/users/me", HTTP_X_AUTH_REQUEST_EMAIL="cordelia@zulip.com")
+        result = self.client_get("/json/users/me", HTTP_X_AUTH_REQUEST_EMAIL="cordelia@zulip.com")
+        self.assert_json_success(result)
         self.assert_logged_in_user_id(hamlet.id)
 
 
 class MpassLogoutTest(MpassSSOTestCase):
     def test_logout_navigates_to_the_portal(self) -> None:
-        self.login("hamlet")
         with self.mpass_settings(MPASS_LOGOUT_REDIRECT_URL="https://portal.example.com"):
+            self.sso_login(self.example_user("hamlet"))
             result = self.client_post("/accounts/logout/")
         self.assertEqual(result.status_code, 302)
         self.assertEqual(result["Location"], "https://portal.example.com")
         self.assert_logged_in_user_id(None)
 
     def test_logout_without_portal_url_is_upstream(self) -> None:
-        self.login("hamlet")
         with self.mpass_settings():
+            self.sso_login(self.example_user("hamlet"))
             result = self.client_post("/accounts/logout/")
         self.assertEqual(result.status_code, 302)
-        self.assertNotEqual(result["Location"], "https://portal.example.com")
+        self.assertEqual(result["Location"], settings.LOGIN_URL)
+        self.assert_logged_in_user_id(None)
+
+
+class MpassEmailChangeTest(MpassSSOTestCase):
+    def test_own_email_change_is_refused(self) -> None:
+        iago = self.example_user("iago")
+        with self.mpass_settings():
+            self.sso_login(iago)
+            result = self.client_patch("/json/settings", {"email": "iago-new@zulip.com"})
+        self.assert_json_error(result, "Email addresses are managed by your sign-in provider.")
+        iago.refresh_from_db()
+        self.assertEqual(iago.delivery_email, "iago@zulip.com")
+
+    def test_admin_change_of_another_users_email_is_refused(self) -> None:
+        iago = self.example_user("iago")
+        hamlet = self.example_user("hamlet")
+        do_change_can_change_user_emails(iago, True)
+        with self.mpass_settings():
+            self.sso_login(iago)
+            result = self.client_patch(
+                f"/json/users/{hamlet.id}", {"new_email": "hamlet-new@zulip.com"}
+            )
+        self.assert_json_error(result, "Email addresses are managed by your sign-in provider.")
+        hamlet.refresh_from_db()
+        self.assertEqual(hamlet.delivery_email, "hamlet@zulip.com")
+
+    def test_register_reports_email_changes_disabled(self) -> None:
+        with self.mpass_settings():
+            self.sso_login(self.example_user("hamlet"))
+            state = self.assert_json_success(
+                self.client_post("/json/register", {"fetch_event_types": '["realm"]'})
+            )
+        self.assertTrue(state["server_email_changes_disabled"])
+
+
+class MpassGateHardeningTest(MpassSSOTestCase):
+    def test_allow_any_tenant_requires_a_real_true(self) -> None:
+        email = self.example_user("hamlet").delivery_email
+        with self.mpass_settings(MPASS_ALLOW_ANY_TENANT="no"):
+            result = self.client_get(
+                "/accounts/login/sso/", REMOTE_USER=email, HTTP_X_AUTH_REQUEST_EMAIL=email
+            )
+        self.assertEqual(result.status_code, 403)
+        self.assert_logged_in_user_id(None)
+
+    def test_edge_header_sign_in_is_refused_without_mpass_sso(self) -> None:
+        email = self.example_user("hamlet").delivery_email
+        with self.settings(AUTHENTICATION_BACKENDS=SSO_ONLY_BACKENDS):
+            result = self.client_get(
+                "/accounts/login/sso/",
+                REMOTE_USER=email,
+                HTTP_X_AUTH_REQUEST_EMAIL=email,
+                MPASS_REMOTE_USER_FROM_EDGE="1",
+            )
+        self.assertEqual(result.status_code, 403)
+        self.assert_logged_in_user_id(None)
+
+    def test_other_remote_user_sources_keep_upstream_behaviour(self) -> None:
+        hamlet = self.example_user("hamlet")
+        with self.settings(AUTHENTICATION_BACKENDS=SSO_ONLY_BACKENDS):
+            result = self.client_get("/accounts/login/sso/", REMOTE_USER=hamlet.delivery_email)
+        self.assertEqual(result.status_code, 302)
+        self.assert_logged_in_user_id(hamlet.id)
 
 
 class MpassPlaceholderAddressTest(MpassSSOTestCase):

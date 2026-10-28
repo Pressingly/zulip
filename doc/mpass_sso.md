@@ -5,7 +5,11 @@ and what Layer 2 needs to wire it into the bundle.
 
 Activated by `MPASS_SSO = True` together with `ZulipRemoteUserBackend` as the only
 authentication backend (`ZULIP_AUTH_BACKENDS=ZulipRemoteUserBackend` in the image). With
-`MPASS_SSO` off, every path below is inert and Zulip behaves like upstream.
+`MPASS_SSO` off, Zulip behaves like upstream with one exception: this image's nginx always maps
+`X-Auth-Request-Email` to `REMOTE_USER` on `/accounts/login/sso/` (and marks the request with
+the `MPASS_REMOTE_USER_FROM_EDGE` uwsgi parameter), and without `MPASS_SSO` there is no gate
+behind it, so such a sign-in is refused with `403`. `REMOTE_USER` from any other source keeps
+upstream's behaviour.
 
 ## How it works
 
@@ -111,6 +115,14 @@ shorter than 32 characters trusts nothing.
   `manage.py change_user_role <email> owner -r ''`.
 - Mail to `@MPASS_DEFAULT_EMAIL_DOMAIN` placeholder addresses is never sent
   (`zerver/lib/send_email.py`): nobody receives mail there.
+- **mPass owns the email address.** The account is bound to the edge identity by its email, so a
+  changed Zulip email would end the session on every request and the next sign-in would create
+  a second account. Under `MPASS_SSO` every email change is refused server-side, administrators
+  and `can_change_user_emails` included (`zerver/views/user_settings.py`, `zerver/views/users.py`),
+  and the web app hides the control (`server_email_changes_disabled` in the register response).
+  Change the address in mPass instead.
+- `MPASS_ALLOW_ANY_TENANT` opens the gate only when it is the boolean `True`; any other value,
+  such as the string `"no"`, keeps it closed.
 
 ## Logout
 
@@ -130,7 +142,9 @@ apart on a status-0 events error with one probe, `fetch("/api/v1/server_settings
   through mPass and lands back in Zulip);
 - a network failure or a normal response: Zulip's retry and backoff carry on;
 - loop guard: one reload per 5 minutes (`sessionStorage`). Within that window, or without a
-  usable `sessionStorage`, polling stops and the connection-error banner shows.
+  usable `sessionStorage`, polling stops and a "Your sign-in has expired" banner offers a
+  reload. While the probe runs, and once polling has stopped this way, Zulip's
+  "events are not running" check (on sending a message) leaves polling stopped.
 
 ## ForwardAuth routing
 
@@ -187,7 +201,11 @@ with its duration):
    go-camo user agent (`EXTERNAL_HOST`) are patched in place.
 4. `settings.py` from `SETTING_*`, secrets from `SECRETS_*`; `generate_secrets` only on a new image.
 5. `manage.py check` only when the configuration or image changed.
-6. Migrations only when this image has not migrated the database (`/data/.migrated-build-id`).
+6. Migrations only when the database lacks one: the image carries a manifest of the migrations
+   it ships (`/usr/local/share/zulip/migration-manifest`, written at build), and one `psql`
+   query at boot checks that each is in `django_migrations` and that the
+   `third_party_api_results` cache table exists. The schema lives in the shared database, so a
+   reset, restore or move of the database is noticed; any mismatch or error runs `migrate`.
    Provisioning runs them explicitly: `docker exec zulip /sbin/entrypoint.sh app:migrate`.
 7. supervisord: nginx, uwsgi, Tornado, the queue worker, cron, go-camo, smokescreen, tusd.
 
@@ -207,7 +225,8 @@ boot markers. Back it up with the database.
 ## Tests
 
 - `zerver/tests/test_mpass_sso.py`: email normalization, the corporate gate, the edge secret,
-  identity switch, logout and placeholder mail.
+  identity switch, logout, account creation on the first sign-in, refused email changes, the
+  header mapping without `MPASS_SSO`, and placeholder mail.
 - `zerver/tests/test_upload_s3.py::test_user_uploads_internal_http_endpoint`: the internal-HTTP
   download path.
 - `web/tests/edge_sign_in.test.cjs` and `web/tests/server_events.test.cjs`: the logged-out tab fix.
