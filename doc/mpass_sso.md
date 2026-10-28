@@ -164,17 +164,25 @@ docker build -f docker/Dockerfile -t <registry>/zulip:<tag> .
 **What the entrypoint does at boot** (`docker/entrypoint.sh`; each phase logs `[zulip-boot]`
 with its duration):
 
-1. `zulip.conf` from the baked copy plus `CONFIG_<section>__<key>` variables. The image is built
+1. Django's log files are created and owned by `zulip` before anything starts: the email
+   gateway runs as root, and upstream relied on a boot-time `manage.py check` to create them
+   first.
+2. `zulip.conf` from the baked copy plus `CONFIG_<section>__<key>` variables. The image is built
    with Puppet already applied for the bundle's `zulip.conf` (HTTP only, the load-balancer ranges,
    one queue-worker process, 4 uwsgi workers); Puppet runs again only when the runtime
    `zulip.conf` differs.
-2. The nginx resolver (`/etc/resolv.conf`, or `CONFIG_application_server__nameserver`) and the
+3. The nginx resolver (`/etc/resolv.conf`, or `CONFIG_application_server__nameserver`) and the
    go-camo user agent (`EXTERNAL_HOST`) are patched in place.
-3. `settings.py` from `SETTING_*`, secrets from `SECRETS_*`; `generate_secrets` only on a new image.
-4. `manage.py check` only when the configuration or image changed.
-5. Migrations only when this image has not migrated the database (`/data/.migrated-build-id`).
+4. `settings.py` from `SETTING_*`, secrets from `SECRETS_*`; `generate_secrets` only on a new image.
+5. `manage.py check` only when the configuration or image changed.
+6. Migrations only when this image has not migrated the database (`/data/.migrated-build-id`).
    Provisioning runs them explicitly: `docker exec zulip /sbin/entrypoint.sh app:migrate`.
-6. supervisord: nginx, uwsgi, Tornado, the queue worker, cron, go-camo, smokescreen, tusd.
+7. supervisord: nginx, uwsgi, Tornado, the queue worker, cron, go-camo, smokescreen, tusd.
+
+Measured on an arm64 devstack: a restart is healthy in about 9 s and a recreate in about 12 s
+(entrypoint under 1 s, the rest is uwsgi and Tornado starting), against 17 s and 23 s with a
+Puppet run, `manage.py check` and `migrate` on every boot. A first boot against an empty
+database takes about 40 s.
 
 A configuration change that needs no recreate:
 `docker exec zulip /home/zulip/deployments/current/scripts/restart-server`.
