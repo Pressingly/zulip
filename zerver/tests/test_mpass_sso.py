@@ -7,6 +7,7 @@ from django.conf import settings
 from django.test import override_settings
 
 from zerver.actions.users import do_change_can_change_user_emails
+from zerver.lib.events import fetch_initial_state_data
 from zerver.lib.mpass_names import FALLBACK_NAME, display_name_for_email
 from zerver.lib.mpass_sso import (
     access_token_claims,
@@ -35,13 +36,13 @@ def access_token(claims: dict[str, object]) -> str:
 
 class MpassSSOTestCase(ZulipTestCase):
     def mpass_settings(self, **overrides: object) -> override_settings:
-        return self.settings(
-            AUTHENTICATION_BACKENDS=SSO_ONLY_BACKENDS,
-            MPASS_SSO=True,
-            MPASS_DEFAULT_EMAIL_DOMAIN="zulip.com",
-            MPASS_ALLOW_ANY_TENANT=True,
-            **overrides,
-        )
+        defaults: dict[str, object] = {
+            "AUTHENTICATION_BACKENDS": SSO_ONLY_BACKENDS,
+            "MPASS_SSO": True,
+            "MPASS_DEFAULT_EMAIL_DOMAIN": "zulip.com",
+            "MPASS_ALLOW_ANY_TENANT": True,
+        }
+        return self.settings(**{**defaults, **overrides})
 
     def sso_login(self, user: UserProfile, **headers: str) -> None:
         # Must run inside mpass_settings(): the session then records
@@ -283,13 +284,13 @@ class MpassEmailChangeTest(MpassSSOTestCase):
         hamlet.refresh_from_db()
         self.assertEqual(hamlet.delivery_email, "hamlet@zulip.com")
 
-    def test_register_reports_email_changes_disabled(self) -> None:
+    def test_initial_state_reports_email_changes_disabled(self) -> None:
+        hamlet = self.example_user("hamlet")
         with self.mpass_settings():
-            self.sso_login(self.example_user("hamlet"))
-            state = self.assert_json_success(
-                self.client_post("/json/register", {"fetch_event_types": '["realm"]'})
-            )
+            state = fetch_initial_state_data(hamlet, realm=hamlet.realm, event_types=["realm"])
         self.assertTrue(state["server_email_changes_disabled"])
+        state = fetch_initial_state_data(hamlet, realm=hamlet.realm, event_types=["realm"])
+        self.assertFalse(state["server_email_changes_disabled"])
 
 
 class MpassGateHardeningTest(MpassSSOTestCase):
@@ -356,6 +357,11 @@ class MpassDisplayNameTest(ZulipTestCase):
 
 
 class MpassFirstSignInTest(MpassSSOTestCase):
+    # The dev settings set TERMS_OF_SERVICE_VERSION, which adds a required
+    # checkbox; the bundle leaves it unset, so registration needs no input.
+    def mpass_settings(self, **overrides: object) -> override_settings:
+        return super().mpass_settings(**{"TERMS_OF_SERVICE_VERSION": None, **overrides})
+
     def sign_in(self, email: str, **headers: str) -> "TestHttpResponse":
         return self.client_get(
             "/accounts/login/sso/", REMOTE_USER=email, HTTP_X_AUTH_REQUEST_EMAIL=email, **headers

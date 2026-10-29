@@ -628,7 +628,7 @@ def remote_user_sso(
         data_dict["subdomain"] = realm.subdomain
     else:
         data_dict["subdomain"] = ""  # realm creation happens on root subdomain
-    if settings.MPASS_SSO:
+    if settings.MPASS_SSO and user_profile is None:
         # mPass has already verified the address, so a first sign-in
         # creates the account directly instead of asking for a name.
         data_dict["full_name"] = display_name_for_email(email)
