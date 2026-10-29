@@ -3,7 +3,7 @@
 How this fork authenticates on the Moneta FOSS platform, what a deployment has to provide,
 and what Layer 2 needs to wire it into the bundle.
 
-Activated by `MPASS_SSO = True` together with `ZulipRemoteUserBackend` as the only
+Activated by `MPASS_SSO = True` (the boolean; any other value leaves it off) together with `ZulipRemoteUserBackend` as the only
 authentication backend (`ZULIP_AUTH_BACKENDS=ZulipRemoteUserBackend` in the image). With
 `MPASS_SSO` off, Zulip behaves like upstream with one exception: this image's nginx always maps
 `X-Auth-Request-Email` to `REMOTE_USER` on `/accounts/login/sso/` (and marks the request with
@@ -206,6 +206,8 @@ with its duration):
    query at boot checks that each is in `django_migrations` and that the
    `third_party_api_results` cache table exists. The schema lives in the shared database, so a
    reset, restore or move of the database is noticed; any mismatch or error runs `migrate`.
+   The manifest is a snapshot of the build-time `INSTALLED_APPS`: turning on `PGROONGA` or
+   `EXTRA_INSTALLED_APPS` later needs an explicit `app:migrate`.
    Provisioning runs them explicitly: `docker exec zulip /sbin/entrypoint.sh app:migrate`.
 7. supervisord: nginx, uwsgi, Tornado, the queue worker, cron, go-camo, smokescreen, tusd.
 

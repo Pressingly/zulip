@@ -50,6 +50,7 @@ from zerver.lib.message import (
     get_starred_message_ids,
     remove_message_id_from_unread_mgs,
 )
+from zerver.lib.mpass_sso import mpass_sso_enabled
 from zerver.lib.muted_users import get_user_mutes
 from zerver.lib.narrow_helpers import NeverNegatedNarrowTerm, read_stop_words
 from zerver.lib.narrow_predicate import check_narrow_for_events
@@ -551,7 +552,7 @@ def fetch_initial_state_data(
             for thumbnail_format in THUMBNAIL_OUTPUT_FORMATS
         ]
         state["server_avatar_changes_disabled"] = settings.AVATAR_CHANGES_DISABLED
-        state["server_email_changes_disabled"] = settings.MPASS_SSO
+        state["server_email_changes_disabled"] = mpass_sso_enabled()
         state["server_name_changes_disabled"] = settings.NAME_CHANGES_DISABLED
         state["server_web_public_streams_enabled"] = settings.WEB_PUBLIC_STREAMS_ENABLED
         state["gif_rating_policy_options"] = realm.get_gif_rating_policy_options()

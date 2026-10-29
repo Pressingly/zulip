@@ -25,6 +25,12 @@ REMOTE_USER_FROM_EDGE = "MPASS_REMOTE_USER_FROM_EDGE"
 MIN_EDGE_SECRET_LENGTH = 32
 
 
+def mpass_sso_enabled() -> bool:
+    # Settings arrive from the environment; only a real True turns the
+    # integration on, so a value such as 1 or "yes" cannot half-enable it.
+    return settings.MPASS_SSO is True
+
+
 def configured_edge_secret() -> str:
     return (get_secret("mpass_edge_secret") or "").strip()
 
@@ -63,7 +69,7 @@ def is_placeholder_address(address: str) -> bool:
     # Bare mPass ids become <id>@MPASS_DEFAULT_EMAIL_DOMAIN, a domain
     # nobody receives mail at.
     domain = settings.MPASS_DEFAULT_EMAIL_DOMAIN.strip().lower()
-    if not settings.MPASS_SSO or domain == "":
+    if not mpass_sso_enabled() or domain == "":
         return False
     return parseaddr(address)[1].lower().endswith(f"@{domain}")
 
@@ -101,7 +107,7 @@ def corporate_tenant_allowed(request: HttpRequest) -> bool:
 
 
 def sso_login_refusal(request: HttpRequest) -> HttpResponse | None:
-    if not settings.MPASS_SSO:
+    if not mpass_sso_enabled():
         # This image's nginx always maps the edge header to REMOTE_USER;
         # without MPASS_SSO there is no gate behind it, so refuse.
         if request.META.get(REMOTE_USER_FROM_EDGE) == "1":
@@ -135,6 +141,6 @@ class MpassIdentitySwitchMiddleware:
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
-        if settings.MPASS_SSO and session_identity_differs_from_edge(request):
+        if mpass_sso_enabled() and session_identity_differs_from_edge(request):
             logout(request)
         return self.get_response(request)

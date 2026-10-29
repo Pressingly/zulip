@@ -58,7 +58,7 @@ from zerver.lib.exceptions import (
 )
 from zerver.lib.mobile_auth_otp import otp_encrypt_api_key
 from zerver.lib.mpass_names import display_name_for_email
-from zerver.lib.mpass_sso import sso_login_refusal
+from zerver.lib.mpass_sso import mpass_sso_enabled, sso_login_refusal
 from zerver.lib.push_notifications import push_notifications_configured
 from zerver.lib.pysa import mark_sanitized
 from zerver.lib.rate_limiter import readable_expiry_string_for_html
@@ -628,7 +628,7 @@ def remote_user_sso(
         data_dict["subdomain"] = realm.subdomain
     else:
         data_dict["subdomain"] = ""  # realm creation happens on root subdomain
-    if settings.MPASS_SSO and user_profile is None:
+    if mpass_sso_enabled() and user_profile is None:
         # mPass has already verified the address, so a first sign-in
         # creates the account directly instead of asking for a name.
         data_dict["full_name"] = display_name_for_email(email)
@@ -1316,7 +1316,7 @@ def should_do_saml_sp_initiated_logout(request: HttpRequest) -> bool:
 
 @require_post
 def logout_view(request: HttpRequest) -> HttpResponse:
-    if settings.MPASS_SSO and settings.MPASS_LOGOUT_REDIRECT_URL:
+    if mpass_sso_enabled() and settings.MPASS_LOGOUT_REDIRECT_URL:
         # Ending the mPass session is the portal's job; sending the
         # user to Zulip's login page would sign them straight back in.
         logout(request)

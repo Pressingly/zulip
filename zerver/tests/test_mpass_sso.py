@@ -1,10 +1,12 @@
 import base64
 import json
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 from unittest import mock
 
 from django.conf import settings
 from django.test import override_settings
+from typing_extensions import override
 
 from zerver.actions.users import do_change_can_change_user_emails
 from zerver.lib.events import fetch_initial_state_data
@@ -44,12 +46,14 @@ class MpassSSOTestCase(ZulipTestCase):
         }
         return self.settings(**{**defaults, **overrides})
 
-    def sso_login(self, user: UserProfile, **headers: str) -> None:
+    def sso_login(self, user: UserProfile, headers: Mapping[str, str] = {}) -> None:
         # Must run inside mpass_settings(): the session then records
         # ZulipRemoteUserBackend, the only backend the views accept.
         email = user.delivery_email
         result = self.client_get(
-            "/accounts/login/sso/", REMOTE_USER=email, HTTP_X_AUTH_REQUEST_EMAIL=email, **headers
+            "/accounts/login/sso/",
+            REMOTE_USER=email,
+            headers={"X-Auth-Request-Email": email, **headers},
         )
         self.assertEqual(result.status_code, 302)
         self.assert_logged_in_user_id(user.id)
@@ -221,7 +225,7 @@ class MpassIdentitySwitchTest(MpassSSOTestCase):
             self.mpass_settings(),
             mock.patch("zerver.lib.mpass_sso.configured_edge_secret", return_value=EDGE_SECRET),
         ):
-            self.sso_login(hamlet, HTTP_X_MPASS_EDGE_SECRET=EDGE_SECRET)
+            self.sso_login(hamlet, {"X-Mpass-Edge-Secret": EDGE_SECRET})
             result = self.client_get(
                 "/json/users/me", HTTP_X_AUTH_REQUEST_EMAIL="cordelia@zulip.com"
             )
@@ -278,11 +282,18 @@ class MpassEmailChangeTest(MpassSSOTestCase):
         with self.mpass_settings():
             self.sso_login(iago)
             result = self.client_patch(
-                f"/json/users/{hamlet.id}", {"new_email": "hamlet-new@zulip.com"}
+                f"/json/users/{hamlet.id}",
+                {
+                    "new_email": "hamlet-new@zulip.com",
+                    "role": str(UserProfile.ROLE_MODERATOR),
+                    "full_name": "Renamed Hamlet",
+                },
             )
         self.assert_json_error(result, "Email addresses are managed by your sign-in provider.")
         hamlet.refresh_from_db()
         self.assertEqual(hamlet.delivery_email, "hamlet@zulip.com")
+        self.assertEqual(hamlet.role, UserProfile.ROLE_MEMBER)
+        self.assertEqual(hamlet.full_name, "King Hamlet")
 
     def test_initial_state_reports_email_changes_disabled(self) -> None:
         hamlet = self.example_user("hamlet")
@@ -291,9 +302,24 @@ class MpassEmailChangeTest(MpassSSOTestCase):
         self.assertTrue(state["server_email_changes_disabled"])
         state = fetch_initial_state_data(hamlet, realm=hamlet.realm, event_types=["realm"])
         self.assertFalse(state["server_email_changes_disabled"])
+        with self.settings(MPASS_SSO=1):
+            state = fetch_initial_state_data(hamlet, realm=hamlet.realm, event_types=["realm"])
+        self.assertIs(state["server_email_changes_disabled"], False)
 
 
 class MpassGateHardeningTest(MpassSSOTestCase):
+    def test_non_bool_mpass_sso_leaves_the_integration_off(self) -> None:
+        email = self.example_user("hamlet").delivery_email
+        with self.mpass_settings(MPASS_SSO=1):
+            result = self.client_get(
+                "/accounts/login/sso/",
+                REMOTE_USER=email,
+                HTTP_X_AUTH_REQUEST_EMAIL=email,
+                MPASS_REMOTE_USER_FROM_EDGE="1",
+            )
+        self.assertEqual(result.status_code, 403)
+        self.assert_logged_in_user_id(None)
+
     def test_allow_any_tenant_requires_a_real_true(self) -> None:
         email = self.example_user("hamlet").delivery_email
         with self.mpass_settings(MPASS_ALLOW_ANY_TENANT="no"):
@@ -359,12 +385,15 @@ class MpassDisplayNameTest(ZulipTestCase):
 class MpassFirstSignInTest(MpassSSOTestCase):
     # The dev settings set TERMS_OF_SERVICE_VERSION, which adds a required
     # checkbox; the bundle leaves it unset, so registration needs no input.
+    @override
     def mpass_settings(self, **overrides: object) -> override_settings:
         return super().mpass_settings(**{"TERMS_OF_SERVICE_VERSION": None, **overrides})
 
-    def sign_in(self, email: str, **headers: str) -> "TestHttpResponse":
+    def sign_in(self, email: str, headers: Mapping[str, str] = {}) -> "TestHttpResponse":
         return self.client_get(
-            "/accounts/login/sso/", REMOTE_USER=email, HTTP_X_AUTH_REQUEST_EMAIL=email, **headers
+            "/accounts/login/sso/",
+            REMOTE_USER=email,
+            headers={"X-Auth-Request-Email": email, **headers},
         )
 
     def complete_registration(self, result: "TestHttpResponse") -> "TestHttpResponse":
@@ -410,7 +439,7 @@ class MpassFirstSignInTest(MpassSSOTestCase):
         email = "refused.person@zulip.com"
         wrong_tenant = access_token({"custom:is_corporate": "true", "custom:corporate_id": "other"})
         with self.mpass_settings(MPASS_SMB_CORPORATE_ID="acme"):
-            result = self.sign_in(email, HTTP_X_AUTH_REQUEST_ACCESS_TOKEN=wrong_tenant)
+            result = self.sign_in(email, {"X-Auth-Request-Access-Token": wrong_tenant})
         self.assertEqual(result.status_code, 403)
         with (
             self.mpass_settings(),
