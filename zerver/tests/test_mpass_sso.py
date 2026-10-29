@@ -8,6 +8,7 @@ from django.conf import settings
 from django.test import override_settings
 from typing_extensions import override
 
+from zerver.actions.user_settings import do_change_full_name
 from zerver.actions.users import do_change_can_change_user_emails
 from zerver.lib.events import fetch_initial_state_data
 from zerver.lib.mpass_names import FALLBACK_NAME, display_name_for_email
@@ -91,6 +92,22 @@ class MpassIdentityToEmailTest(ZulipTestCase):
 
 
 class MpassSSOLoginTest(MpassSSOTestCase):
+    def test_returning_user_with_a_changed_name_signs_in(self) -> None:
+        hamlet = self.example_user("hamlet")
+        do_change_full_name(hamlet, "Prince of Denmark", acting_user=None, notify=False)
+        self.assertNotEqual(hamlet.full_name, display_name_for_email(hamlet.delivery_email))
+        with self.mpass_settings():
+            result = self.client_get(
+                "/accounts/login/sso/",
+                REMOTE_USER=hamlet.delivery_email,
+                headers={"X-Auth-Request-Email": hamlet.delivery_email},
+            )
+        self.assertEqual(result.status_code, 302)
+        self.assertEqual(result["Location"], "http://zulip.testserver/")
+        self.assert_logged_in_user_id(hamlet.id)
+        hamlet.refresh_from_db()
+        self.assertEqual(hamlet.full_name, "Prince of Denmark")
+
     def test_bare_mpass_id_logs_in(self) -> None:
         hamlet = self.example_user("hamlet")
         with self.mpass_settings():

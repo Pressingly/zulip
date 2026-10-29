@@ -94,7 +94,9 @@ export function open_sign_in_expired_popup_banner(on_reload: () => void): void {
         return;
     }
     banners.append(SIGN_IN_EXPIRED, $wrapper);
-    $wrapper.one("click", ".sign-in-expired-reload", on_reload);
+    // Bound on the button, not delegated from the wrapper, so closing the
+    // banner drops the handler with it.
+    $wrapper.find(".sign-in-expired .sign-in-expired-reload").one("click", on_reload);
 }
 
 export function close_sign_in_expired_popup_banner(): void {
