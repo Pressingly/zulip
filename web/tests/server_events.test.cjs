@@ -27,6 +27,7 @@ const popup_banners = mock_esm("../src/popup_banners", {
     close_connection_error_popup_banner() {},
     open_connection_error_popup_banner() {},
     open_sign_in_expired_popup_banner() {},
+    close_sign_in_expired_popup_banner() {},
 });
 const edge_sign_in = mock_esm("../src/edge_sign_in", {
     async verdict_after_network_error() {
@@ -205,6 +206,31 @@ run_test("a blocked edge reload stops polling and offers a reload", async ({over
     });
     on_reload();
     assert.deepEqual(reload_options, {immediate: true, save_compose: true});
+});
+
+run_test("a successful poll after a block clears the sign-in state", async ({override}) => {
+    override(edge_sign_in, "verdict_after_network_error", async () => "blocked");
+    override(popup_banners, "open_sign_in_expired_popup_banner", noop);
+    set_global("setTimeout", noop);
+    await server_events.handle_get_events_network_error(4);
+
+    let banner_closed = false;
+    override(popup_banners, "close_sign_in_expired_popup_banner", () => {
+        banner_closed = true;
+    });
+    channel.get = (options) => {
+        options.success({events: []});
+    };
+    server_events.restart_get_events();
+    assert.ok(banner_closed);
+
+    let polls = 0;
+    channel.get = () => {
+        polls += 1;
+    };
+    blueslip.expect("error", "compose sent a message");
+    server_events.assert_get_events_running("compose sent a message");
+    assert.equal(polls, 1);
 });
 
 run_test("polling is not restarted while the edge probe is pending", async ({override}) => {

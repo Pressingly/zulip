@@ -6,6 +6,7 @@
 // with redirect: "manual" tells the two apart.
 
 const PROBE_URL = "/api/v1/server_settings";
+const PROBE_TIMEOUT_MS = 10_000;
 const RELOAD_GUARD_KEY = "zulip_edge_sign_in_reload_at";
 export const RELOAD_GUARD_MS = 5 * 60 * 1000;
 
@@ -13,7 +14,11 @@ export type NetworkErrorVerdict = "reload" | "blocked" | "retry";
 
 export async function edge_redirects_to_sign_in(): Promise<boolean> {
     try {
-        const response = await fetch(PROBE_URL, {redirect: "manual", credentials: "same-origin"});
+        const response = await fetch(PROBE_URL, {
+            redirect: "manual",
+            credentials: "same-origin",
+            signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+        });
         return response.type === "opaqueredirect";
     } catch {
         return false;

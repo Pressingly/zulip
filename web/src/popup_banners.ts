@@ -97,6 +97,13 @@ export function open_sign_in_expired_popup_banner(on_reload: () => void): void {
     $wrapper.one("click", ".sign-in-expired-reload", on_reload);
 }
 
+export function close_sign_in_expired_popup_banner(): void {
+    const $banner = $("#popup_banners_wrapper").find(".sign-in-expired");
+    if ($banner.length > 0) {
+        banners.close($banner);
+    }
+}
+
 // Show user a banner with a button to allow user to navigate
 // to the first unread if required.
 const FOUND_MISSING_UNREADS_IN_CURRENT_NARROW: Banner = {

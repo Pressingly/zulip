@@ -183,6 +183,7 @@ export async function handle_get_events_network_error(retry_delay_secs) {
         reload_after_edge_sign_in();
     } else if (verdict === "blocked") {
         edge_sign_in_state = "blocked";
+        popup_banners.close_connection_error_popup_banner("server_events");
         popup_banners.open_sign_in_expired_popup_banner(reload_after_edge_sign_in);
     } else {
         edge_sign_in_state = "none";
@@ -237,6 +238,10 @@ function get_events({dont_block = false} = {}) {
                 get_events_xhr = undefined;
                 get_events_failures = 0;
                 popup_banners.close_connection_error_popup_banner("server_events");
+                // Polling can resume past the edge guard (a send-triggered
+                // restart, or waking from suspend) once the user signs in.
+                edge_sign_in_state = "none";
+                popup_banners.close_sign_in_expired_popup_banner();
 
                 get_events_success(data.events);
             } catch (error) {

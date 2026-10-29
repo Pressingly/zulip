@@ -31,12 +31,12 @@ run_test("edge redirect reloads once, then blocks within the guard window", asyn
     const requests = respond_with("opaqueredirect");
 
     assert.equal(await edge_sign_in.verdict_after_network_error(1000), "reload");
-    assert.deepEqual(requests, [
-        {
-            url: "/api/v1/server_settings",
-            options: {redirect: "manual", credentials: "same-origin"},
-        },
-    ]);
+    assert.equal(requests.length, 1);
+    const [{url, options}] = requests;
+    assert.equal(url, "/api/v1/server_settings");
+    assert.equal(options.redirect, "manual");
+    assert.equal(options.credentials, "same-origin");
+    assert.ok(options.signal instanceof AbortSignal);
 
     const still_inside_window = 1000 + edge_sign_in.RELOAD_GUARD_MS - 1;
     assert.equal(await edge_sign_in.verdict_after_network_error(still_inside_window), "blocked");
