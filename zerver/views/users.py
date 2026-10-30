@@ -53,6 +53,7 @@ from zerver.lib.exceptions import (
     OrganizationOwnerRequiredError,
 )
 from zerver.lib.integrations import EMBEDDED_BOTS
+from zerver.lib.mpass_sso import mpass_sso_enabled
 from zerver.lib.rate_limiter import (
     rate_limit_spectator_attachment_access_by_file,
     should_rate_limit,
@@ -295,6 +296,10 @@ def update_user_backend(
         not user_profile.can_change_user_emails or not user_profile.is_realm_admin
     ):
         raise JsonableError(_("User not authorized to change user emails"))
+    if new_email is not None and mpass_sso_enabled():
+        # Refuse before any other field is written, so the request is
+        # rejected as a whole.
+        raise JsonableError(_("Email addresses are managed by your sign-in provider."))
 
     if role is not None and target.role != role:
         # Require that the current user has permissions to

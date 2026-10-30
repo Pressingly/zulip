@@ -4,6 +4,7 @@ import _ from "lodash";
 import * as blueslip from "./blueslip.ts";
 import * as channel from "./channel.ts";
 import * as echo from "./echo.ts";
+import * as edge_sign_in from "./edge_sign_in.ts";
 import * as loading from "./loading.ts";
 import * as message_events from "./message_events.ts";
 import {page_params} from "./page_params.ts";
@@ -32,6 +33,11 @@ let get_events_failures = 0;
 const get_events_params = {};
 
 let event_queue_expired = false;
+
+// While a status-0 events error is being checked against the sign-on
+// edge, and after the edge is found to block this tab, polling is
+// stopped on purpose; assert_get_events_running must not restart it.
+let edge_sign_in_state = "none";
 
 function get_events_success(events) {
     let raw_messages = [];
@@ -149,6 +155,42 @@ function get_events_success(events) {
     }
 }
 
+function open_connection_error_banner(retry_delay_secs) {
+    popup_banners.open_connection_error_popup_banner({
+        caller: "server_events",
+        retry_delay_secs,
+        on_retry_callback() {
+            restart_get_events({dont_block: true});
+        },
+    });
+}
+
+function schedule_get_events_retry(retry_delay_secs) {
+    if (get_events_failures >= 8) {
+        open_connection_error_banner(retry_delay_secs);
+    }
+    get_events_timeout = setTimeout(get_events, retry_delay_secs * 1000);
+}
+
+function reload_after_edge_sign_in() {
+    reload.initiate({immediate: true, save_compose: true});
+}
+
+export async function handle_get_events_network_error(retry_delay_secs) {
+    edge_sign_in_state = "probing";
+    const verdict = await edge_sign_in.verdict_after_network_error();
+    if (verdict === "reload") {
+        reload_after_edge_sign_in();
+    } else if (verdict === "blocked") {
+        edge_sign_in_state = "blocked";
+        popup_banners.close_connection_error_popup_banner("server_events");
+        popup_banners.open_sign_in_expired_popup_banner(reload_after_edge_sign_in);
+    } else {
+        edge_sign_in_state = "none";
+        schedule_get_events_retry(retry_delay_secs);
+    }
+}
+
 function get_events({dont_block = false} = {}) {
     if (reload_state.is_in_progress()) {
         return;
@@ -196,6 +238,10 @@ function get_events({dont_block = false} = {}) {
                 get_events_xhr = undefined;
                 get_events_failures = 0;
                 popup_banners.close_connection_error_popup_banner("server_events");
+                // Polling can resume past the edge guard (a send-triggered
+                // restart, or waking from suspend) once the user signs in.
+                edge_sign_in_state = "none";
+                popup_banners.close_sign_in_expired_popup_banner();
 
                 get_events_success(data.events);
             } catch (error) {
@@ -229,25 +275,23 @@ function get_events({dont_block = false} = {}) {
                     get_events_failures += 1;
                 }
 
-                if (get_events_failures >= 8) {
-                    popup_banners.open_connection_error_popup_banner({
-                        caller: "server_events",
-                        retry_delay_secs,
-                        on_retry_callback() {
-                            restart_get_events({dont_block: true});
-                        },
-                    });
+                if (xhr.status === 0 && error_type === "error") {
+                    void handle_get_events_network_error(retry_delay_secs);
+                    return;
                 }
             } catch (error) {
                 blueslip.error("Failed to handle get_events error", undefined, error);
             }
 
-            get_events_timeout = setTimeout(get_events, retry_delay_secs * 1000);
+            schedule_get_events_retry(retry_delay_secs);
         },
     });
 }
 
 export function assert_get_events_running(error_message) {
+    if (edge_sign_in_state !== "none") {
+        return;
+    }
     if (get_events_xhr === undefined && get_events_timeout === undefined) {
         restart_get_events({dont_block: true});
         blueslip.error(error_message);

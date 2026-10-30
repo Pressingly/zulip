@@ -23,8 +23,19 @@ page_params.test_suite = false;
 // we also directly write to pointer
 set_global("pointer", {});
 
-mock_esm("../src/popup_banners", {
+const popup_banners = mock_esm("../src/popup_banners", {
     close_connection_error_popup_banner() {},
+    open_connection_error_popup_banner() {},
+    open_sign_in_expired_popup_banner() {},
+    close_sign_in_expired_popup_banner() {},
+});
+const edge_sign_in = mock_esm("../src/edge_sign_in", {
+    async verdict_after_network_error() {
+        return "retry";
+    },
+});
+const reload = mock_esm("../src/reload", {
+    initiate() {},
 });
 
 mock_esm("../src/stream_events", {
@@ -159,4 +170,98 @@ run_test("event_edit_message_error", () => {
     const logs = blueslip.get_test_logs("error");
     assert.equal(logs.length, 1);
     assert.equal(logs[0].more_info, undefined);
+});
+
+run_test("network error after the edge session ended reloads the tab", async ({override}) => {
+    override(edge_sign_in, "verdict_after_network_error", async () => "reload");
+    let reload_options;
+    override(reload, "initiate", (options) => {
+        reload_options = options;
+    });
+
+    await server_events.handle_get_events_network_error(4);
+
+    assert.deepEqual(reload_options, {immediate: true, save_compose: true});
+});
+
+run_test("a blocked edge reload stops polling and offers a reload", async ({override}) => {
+    override(edge_sign_in, "verdict_after_network_error", async () => "blocked");
+    let on_reload;
+    override(popup_banners, "open_sign_in_expired_popup_banner", (callback) => {
+        on_reload = callback;
+    });
+    set_global("setTimeout", () => {
+        throw new Error("get_events must not be rescheduled");
+    });
+    channel.get = () => {
+        throw new Error("polling must stay stopped");
+    };
+
+    await server_events.handle_get_events_network_error(4);
+    server_events.assert_get_events_running("compose sent a message");
+
+    let reload_options;
+    override(reload, "initiate", (options) => {
+        reload_options = options;
+    });
+    on_reload();
+    assert.deepEqual(reload_options, {immediate: true, save_compose: true});
+});
+
+run_test("a successful poll after a block clears the sign-in state", async ({override}) => {
+    override(edge_sign_in, "verdict_after_network_error", async () => "blocked");
+    override(popup_banners, "open_sign_in_expired_popup_banner", noop);
+    set_global("setTimeout", noop);
+    await server_events.handle_get_events_network_error(4);
+
+    let banner_closed = false;
+    override(popup_banners, "close_sign_in_expired_popup_banner", () => {
+        banner_closed = true;
+    });
+    channel.get = (options) => {
+        options.success({events: []});
+    };
+    server_events.restart_get_events();
+    assert.ok(banner_closed);
+
+    let polls = 0;
+    channel.get = () => {
+        polls += 1;
+    };
+    blueslip.expect("error", "compose sent a message");
+    server_events.assert_get_events_running("compose sent a message");
+    assert.equal(polls, 1);
+});
+
+run_test("polling is not restarted while the edge probe is pending", async ({override}) => {
+    let finish_probe;
+    override(
+        edge_sign_in,
+        "verdict_after_network_error",
+        () =>
+            new Promise((resolve) => {
+                finish_probe = resolve;
+            }),
+    );
+    channel.get = () => {
+        throw new Error("polling must wait for the probe");
+    };
+    set_global("setTimeout", noop);
+
+    const handled = server_events.handle_get_events_network_error(4);
+    server_events.assert_get_events_running("compose sent a message");
+    finish_probe("retry");
+    await handled;
+});
+
+run_test("a real network error keeps retrying", async ({override}) => {
+    override(edge_sign_in, "verdict_after_network_error", async () => "retry");
+    let scheduled_delay_ms;
+    set_global("setTimeout", (_f, delay_ms) => {
+        scheduled_delay_ms = delay_ms;
+    });
+
+    await server_events.handle_get_events_network_error(4);
+
+    assert.equal(scheduled_delay_ms, 4000);
 });

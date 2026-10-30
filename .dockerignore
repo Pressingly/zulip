@@ -1,0 +1,13 @@
+# The release tarball is built from this checkout's .git, so .git stays in
+# the build context. Only untracked build byproducts are excluded: dropping a
+# tracked file would dirty the tree and tools/build-release-tarball refuses.
+/.venv
+/.pnpm-store
+/node_modules
+/var
+/prod-static
+/staticfiles.json
+/webpack-stats-production.json
+/zulip-git-version
+**/*.pyc
+**/__pycache__
