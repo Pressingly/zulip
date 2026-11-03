@@ -1,0 +1,109 @@
+# CI for the Moneta FOSS fork. Upstream's zulip-ci.yml (five OS images) is
+# disabled on this repository; this runs one backend and one frontend job
+# from it, plus the fork's own Docker entrypoint test.
+
+name: FOSS CI
+
+on:
+  push:
+    branches: [foss-sandbox, foss-main]
+  pull_request:
+    branches: [foss-sandbox, foss-main]
+  workflow_dispatch:
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.head_ref || github.run_id }}"
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend (Ubuntu 24.04, Python 3.12)
+    runs-on: ubuntu-latest
+    container: zulip/ci:noble
+    timeout-minutes: 90
+    env:
+      # Same reason as zulip-ci.yml: provision writes ~/.pgpass.
+      HOME: /home/github/
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Create cache directories
+        run: |
+          sudo mkdir -p /srv/zulip-emoji-cache
+          sudo chown -R github /srv/zulip-emoji-cache
+
+      - name: Restore uv cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: uv-noble-${{ hashFiles('uv.lock') }}
+          restore-keys: uv-noble-
+
+      - name: Install dependencies
+        run: ./tools/ci/setup-backend --skip-dev-db-build
+
+      - name: Run Docker entrypoint tests
+        run: bash docker/tests/test-entrypoint-settings.sh
+
+      - name: Run backend lint
+        run: |
+          source tools/ci/activate-venv
+          ./tools/lint --groups=backend --skip=gitlint,mypy
+
+      - name: Run backend tests
+        run: |
+          source tools/ci/activate-venv
+          ./tools/test-backend --coverage --no-html-report --include-webhooks --include-transaction-tests --no-cov-cleanup --ban-console-output
+
+      - name: Run mypy
+        run: |
+          source tools/ci/activate-venv
+          ./tools/run-mypy
+
+  frontend:
+    name: Frontend (Ubuntu 22.04, node tests + lint)
+    runs-on: ubuntu-latest
+    container: zulip/ci:jammy
+    timeout-minutes: 60
+    env:
+      HOME: /home/github/
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Create cache directories
+        run: |
+          sudo mkdir -p /srv/zulip-emoji-cache
+          sudo chown -R github /srv/zulip-emoji-cache
+
+      - name: Restore pnpm store
+        uses: actions/cache@v4
+        with:
+          path: /__w/.pnpm-store
+          key: v1-pnpm-store-jammy-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Restore uv cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: uv-jammy-${{ hashFiles('uv.lock') }}
+          restore-keys: uv-jammy-
+
+      - name: Install dependencies
+        run: ./tools/ci/setup-backend --skip-dev-db-build
+
+      - name: Run node tests
+        run: |
+          source tools/ci/activate-venv
+          ./tools/test-js-with-node --coverage --parallel=1
+
+      - name: Run frontend lint
+        run: |
+          source tools/ci/activate-venv
+          ./tools/lint --groups=frontend --skip=gitlint
