@@ -71,6 +71,41 @@ const update_connection_error_banner = ($banner: JQuery, retry_delay_secs: numbe
     }, 1000);
 };
 
+// Shown when a single sign-on edge has ended the session and the
+// one automatic reload already happened (web/src/edge_sign_in.ts);
+// event polling has stopped, so only a reload can recover.
+const SIGN_IN_EXPIRED: Banner = {
+    intent: "warning",
+    label: $t({defaultMessage: "Your sign-in has expired. Reload to continue."}),
+    buttons: [
+        {
+            variant: "subtle",
+            label: $t({defaultMessage: "Reload"}),
+            custom_classes: "sign-in-expired-reload",
+        },
+    ],
+    close_button: false,
+    custom_classes: "sign-in-expired popup-banner",
+};
+
+export function open_sign_in_expired_popup_banner(on_reload: () => void): void {
+    const $wrapper = $("#popup_banners_wrapper");
+    if ($wrapper.find(".sign-in-expired").length > 0) {
+        return;
+    }
+    banners.append(SIGN_IN_EXPIRED, $wrapper);
+    // Bound on the button, not delegated from the wrapper, so closing the
+    // banner drops the handler with it.
+    $wrapper.find(".sign-in-expired .sign-in-expired-reload").one("click", on_reload);
+}
+
+export function close_sign_in_expired_popup_banner(): void {
+    const $banner = $("#popup_banners_wrapper").find(".sign-in-expired");
+    if ($banner.length > 0) {
+        banners.close($banner);
+    }
+}
+
 // Show user a banner with a button to allow user to navigate
 // to the first unread if required.
 const FOUND_MISSING_UNREADS_IN_CURRENT_NARROW: Banner = {

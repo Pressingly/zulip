@@ -41,6 +41,9 @@ export function user_can_change_avatar(): boolean {
 }
 
 export function user_can_change_email(): boolean {
+    if (realm.server_email_changes_disabled) {
+        return false;
+    }
     if (current_user.is_admin) {
         return true;
     }

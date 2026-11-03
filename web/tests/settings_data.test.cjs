@@ -135,6 +135,11 @@ run_test("user_can_change_email", ({override}) => {
 
     override(realm, "realm_email_changes_disabled", false);
     assert.equal(can_change_email(), true);
+
+    override(realm, "server_email_changes_disabled", true);
+    assert.equal(can_change_email(), false);
+    override(current_user, "is_admin", true);
+    assert.equal(can_change_email(), false);
 });
 
 run_test("user_can_change_name", ({override}) => {

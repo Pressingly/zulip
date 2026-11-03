@@ -34,6 +34,7 @@ from django.utils.translation import override as override_language
 
 from confirmation.models import generate_key
 from zerver.lib.logging_util import log_to_file
+from zerver.lib.mpass_sso import is_placeholder_address
 from zerver.lib.queue import queue_event_on_commit
 from zerver.models import Realm, RealmAuditLog, ScheduledEmail, UserProfile
 from zerver.models.realm_audit_logs import AuditLogEventType
@@ -306,6 +307,11 @@ def send_immediate_email(
 
     if dry_run:
         print(mail.message().get_payload(0))
+        return
+
+    mail.to = [address for address in mail.to if not is_placeholder_address(address)]
+    if not mail.to:
+        logger.info("Not sending %s email: every recipient is an mPass placeholder", template)
         return
 
     owns_connection = connection is None

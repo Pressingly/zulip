@@ -9,6 +9,7 @@ class zulip::profile::docker {
   include zulip::local_mailserver
   include zulip::supervisor
   include zulip::process_fts_updates
+  include zulip::mpass_sso
 
   file { "${zulip::common::supervisor_conf_dir}/cron.conf":
     ensure  => file,

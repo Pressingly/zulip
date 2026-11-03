@@ -125,6 +125,14 @@ SOCIAL_AUTH_SYNC_ATTRS_DICT: dict[
 SSO_APPEND_DOMAIN: str | None = None
 CUSTOM_HOME_NOT_LOGGED_IN: str | None = None
 
+# mPass SSO through the Moneta FOSS bundle's ForwardAuth edge
+# (zerver/lib/mpass_sso.py, doc/mpass_sso.md).
+MPASS_SSO = False
+MPASS_DEFAULT_EMAIL_DOMAIN = ""
+MPASS_SMB_CORPORATE_ID = ""
+MPASS_ALLOW_ANY_TENANT = False
+MPASS_LOGOUT_REDIRECT_URL = ""
+
 VIDEO_ZOOM_API_URL: str = "https://api.zoom.us"
 VIDEO_ZOOM_OAUTH_URL: str = "https://zoom.us"
 VIDEO_ZOOM_SERVER_TO_SERVER_ACCOUNT_ID = get_secret("video_zoom_account_id", development_only=True)

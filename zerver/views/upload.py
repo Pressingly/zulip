@@ -109,7 +109,7 @@ def serve_s3(
         return response
 
     url = get_signed_upload_url(path_id, filename, force_download=force_download)
-    assert url.startswith("https://")
+    assert url.startswith(("https://", "http://"))
 
     if settings.DEVELOPMENT:
         # In development, we do not have the nginx server to offload
@@ -124,8 +124,17 @@ def serve_s3(
     assert parsed_url.hostname is not None
     assert parsed_url.path is not None
     assert parsed_url.query is not None
-    escaped_path_parts = parsed_url.hostname + quote(parsed_url.path) + "?" + parsed_url.query
-    response = internal_nginx_redirect("/internal/s3/" + escaped_path_parts)
+    if parsed_url.scheme == "http":
+        # A plain-HTTP endpoint is an internal S3 service (for example
+        # SeaweedFS on a private network), which usually listens on a
+        # non-default port that the signature covers.
+        internal_prefix = "/internal/s3-http/"
+        s3_host = parsed_url.netloc
+    else:
+        internal_prefix = "/internal/s3/"
+        s3_host = parsed_url.hostname
+    escaped_path_parts = s3_host + quote(parsed_url.path) + "?" + parsed_url.query
+    response = internal_nginx_redirect(internal_prefix + escaped_path_parts)
 
     # It is important that S3 generate both the Content-Type and
     # Content-Disposition headers; when the file was uploaded, we
