@@ -17,7 +17,6 @@ ZULIP_SETTINGS=/etc/zulip/settings.py
 ZULIP_SECRETS=/etc/zulip/zulip-secrets.conf
 BAKED_CONF=/etc/zulip/zulip.conf.baked
 APPLIED_CONF=/etc/zulip/zulip.conf.applied
-BUILD_ID="$(cat "$DEPLOY_ROOT/build_id")"
 MIGRATION_MANIFEST=/usr/local/share/zulip/migration-manifest
 
 BOOT_STARTED_MS="$(date +%s%3N)"
@@ -63,8 +62,8 @@ prepareDirectories() {
 # check be skipped without root taking a log the zulip workers need.
 prepareLogFiles() {
     local log_file
-    grep -ho '/var/log/zulip/[A-Za-z0-9_.-]*\.log' "$DEPLOY_ROOT/zproject/computed_settings.py" | sort -u |
-        while read -r log_file; do
+    grep -ho '/var/log/zulip/[A-Za-z0-9_.-]*\.log' "$DEPLOY_ROOT/zproject/computed_settings.py" | sort -u \
+        | while read -r log_file; do
             touch "$log_file"
             chown zulip:zulip "$log_file"
         done
@@ -138,7 +137,7 @@ setConfigurationValue() {
     if [ -z "$type" ]; then
         case "$(echo -e "$value" | tr -d '[:space:]')" in
             [Tt][Rr][Uu][Ee] | [Ff][Aa][Ll][Ss][Ee] | [Nn]one) type="bool" ;;
-            +([0-9])) type="integer" ;;
+            0 | [1-9]*([0-9])) type="integer" ;;
             \[*\] | \(*\) | \{*\}) type="array" ;;
             *) type="string" ;;
         esac
@@ -153,6 +152,12 @@ setConfigurationValue() {
             ;;
         integer | array) line="$key = $value" ;;
         *)
+            # Secret stores often hand values over with a trailing newline.
+            value="${value%%+([$'\r\n'])}"
+            if [[ "$value" == *[$'\r\n']* ]]; then
+                echo "ERROR: Setting \"$key\" contains a newline!"
+                exit 1
+            fi
             value="${value//\\/\\\\}"
             value="${value//\'/\\\'}"
             line="$key = '$value'"
@@ -215,7 +220,21 @@ zulipConfiguration() {
             echo "WARNING: Empty var for key \"${key#SETTING_}\", skipping."
             continue
         fi
-        setConfigurationValue "${key#SETTING_}" "$value"
+        setConfigurationValue "${key#SETTING_}" "$value" "$(declaredSettingType "${key#SETTING_}")"
+    done
+}
+
+# Identifiers that may look numeric (an mPass corporate id such as 1234) but
+# must reach settings.py as strings.
+STRING_SETTINGS=(MPASS_SMB_CORPORATE_ID)
+
+declaredSettingType() {
+    local name="$1" string_setting
+    for string_setting in "${STRING_SETTINGS[@]}"; do
+        if [ "$name" = "$string_setting" ]; then
+            echo string
+            return
+        fi
     done
 }
 
@@ -260,7 +279,7 @@ migrateDatabase() {
 
 psqlAsZulip() {
     PGPASSWORD="$(crudini --get "$ZULIP_SECRETS" secrets postgres_password 2>/dev/null || true)" \
-        PGSSLMODE="${SETTING_REMOTE_POSTGRES_SSLMODE:-prefer}" PGCONNECT_TIMEOUT=5 \
+    PGSSLMODE="${SETTING_REMOTE_POSTGRES_SSLMODE:-prefer}" PGCONNECT_TIMEOUT=5 \
         psql -h "${SETTING_REMOTE_POSTGRES_HOST:-127.0.0.1}" -p "${SETTING_REMOTE_POSTGRES_PORT:-5432}" \
         -U "$(crudini --get "$ZULIP_CONF" postgresql database_user 2>/dev/null || echo zulip)" \
         -d "$(crudini --get "$ZULIP_CONF" postgresql database_name 2>/dev/null || echo zulip)" \
@@ -273,8 +292,8 @@ psqlAsZulip() {
 databaseMatchesImage() {
     local state
     state="$(psqlAsZulip "SELECT app || '.' || name FROM django_migrations
-        UNION ALL SELECT '#cache-table' FROM pg_tables WHERE tablename = 'third_party_api_results'")" ||
-        return 1
+        UNION ALL SELECT '#cache-table' FROM pg_tables WHERE tablename = 'third_party_api_results'")" \
+        || return 1
     grep -qx '#cache-table' <<<"$state" || return 1
     [ -z "$(LC_ALL=C comm -23 "$MIGRATION_MANIFEST" <(LC_ALL=C sort <<<"$state"))" ]
 }
@@ -320,13 +339,17 @@ appManagePy() {
     exec su zulip -c "$DEPLOY_ROOT/manage.py $(printf '%q ' "$command" "$@")"
 }
 
-case "${1:-}" in
-    app:run) appRun ;;
-    app:init) initialConfiguration ;;
-    app:migrate) migrateDatabase ;;
-    app:managepy)
-        shift
-        appManagePy "$@"
-        ;;
-    *) exec "$@" ;;
-esac
+# Sourced by docker/tests/test-entrypoint-settings.sh, which needs only the functions.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    BUILD_ID="$(cat "$DEPLOY_ROOT/build_id")"
+    case "${1:-}" in
+        app:run) appRun ;;
+        app:init) initialConfiguration ;;
+        app:migrate) migrateDatabase ;;
+        app:managepy)
+            shift
+            appManagePy "$@"
+            ;;
+        *) exec "$@" ;;
+    esac
+fi

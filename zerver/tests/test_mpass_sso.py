@@ -163,6 +163,32 @@ class MpassSSOLoginTest(MpassSSOTestCase):
             )
         self.assertEqual(result.status_code, 403)
 
+    def test_corporate_gate_with_numeric_corporate_id(self) -> None:
+        hamlet = self.example_user("hamlet")
+        email = hamlet.delivery_email
+        cases: list[tuple[object, str, int]] = [
+            (1234, "1234", 302),
+            ("0123", "0123", 302),
+            ("0123", "123", 403),
+        ]
+        for configured_id, claimed_id, status in cases:
+            claims: dict[str, object] = {
+                "custom:is_corporate": "true",
+                "custom:corporate_id": claimed_id,
+            }
+            with (
+                self.subTest(configured_id=configured_id, claimed_id=claimed_id),
+                self.mpass_settings(MPASS_SMB_CORPORATE_ID=configured_id),
+            ):
+                self.client_post("/accounts/logout/")
+                result = self.client_get(
+                    "/accounts/login/sso/",
+                    REMOTE_USER=email,
+                    HTTP_X_AUTH_REQUEST_EMAIL=email,
+                    HTTP_X_AUTH_REQUEST_ACCESS_TOKEN=access_token(claims),
+                )
+                self.assertEqual(result.status_code, status)
+
     def test_edge_secret(self) -> None:
         hamlet = self.example_user("hamlet")
         email = hamlet.delivery_email
@@ -390,7 +416,7 @@ class MpassDisplayNameTest(ZulipTestCase):
 
     def test_long_local_part_is_truncated(self) -> None:
         name = display_name_for_email("a" * 150 + "@example.com")
-        self.assertEqual(len(name), UserProfile.MAX_NAME_LENGTH)
+        self.assert_length(name, UserProfile.MAX_NAME_LENGTH)
 
     def test_unusable_local_part_falls_back(self) -> None:
         self.assertEqual(display_name_for_email("***@example.com"), "at example.com")
