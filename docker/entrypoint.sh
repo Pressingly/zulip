@@ -62,8 +62,8 @@ prepareDirectories() {
 # check be skipped without root taking a log the zulip workers need.
 prepareLogFiles() {
     local log_file
-    grep -ho '/var/log/zulip/[A-Za-z0-9_.-]*\.log' "$DEPLOY_ROOT/zproject/computed_settings.py" | sort -u |
-        while read -r log_file; do
+    grep -ho '/var/log/zulip/[A-Za-z0-9_.-]*\.log' "$DEPLOY_ROOT/zproject/computed_settings.py" | sort -u \
+        | while read -r log_file; do
             touch "$log_file"
             chown zulip:zulip "$log_file"
         done
@@ -279,7 +279,7 @@ migrateDatabase() {
 
 psqlAsZulip() {
     PGPASSWORD="$(crudini --get "$ZULIP_SECRETS" secrets postgres_password 2>/dev/null || true)" \
-        PGSSLMODE="${SETTING_REMOTE_POSTGRES_SSLMODE:-prefer}" PGCONNECT_TIMEOUT=5 \
+    PGSSLMODE="${SETTING_REMOTE_POSTGRES_SSLMODE:-prefer}" PGCONNECT_TIMEOUT=5 \
         psql -h "${SETTING_REMOTE_POSTGRES_HOST:-127.0.0.1}" -p "${SETTING_REMOTE_POSTGRES_PORT:-5432}" \
         -U "$(crudini --get "$ZULIP_CONF" postgresql database_user 2>/dev/null || echo zulip)" \
         -d "$(crudini --get "$ZULIP_CONF" postgresql database_name 2>/dev/null || echo zulip)" \
@@ -292,8 +292,8 @@ psqlAsZulip() {
 databaseMatchesImage() {
     local state
     state="$(psqlAsZulip "SELECT app || '.' || name FROM django_migrations
-        UNION ALL SELECT '#cache-table' FROM pg_tables WHERE tablename = 'third_party_api_results'")" ||
-        return 1
+        UNION ALL SELECT '#cache-table' FROM pg_tables WHERE tablename = 'third_party_api_results'")" \
+        || return 1
     grep -qx '#cache-table' <<<"$state" || return 1
     [ -z "$(LC_ALL=C comm -23 "$MIGRATION_MANIFEST" <(LC_ALL=C sort <<<"$state"))" ]
 }

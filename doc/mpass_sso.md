@@ -53,16 +53,16 @@ All values are Django settings in `/etc/zulip/settings.py`; the image's entrypoi
 `SETTING_<NAME>` environment variable there and every `SECRETS_<name>` into
 `zulip-secrets.conf`.
 
-| Setting | Required | Meaning |
-|---|---|---|
-| `MPASS_SSO` | yes | `True` turns the integration on |
-| `MPASS_DEFAULT_EMAIL_DOMAIN` | yes | Domain for a bare mPass id (`<id>@<domain>`). Empty, every bare-id sign-in is refused. Must match the other bundle apps (`DEFAULT_EMAIL_DOMAIN`) |
-| `MPASS_SMB_CORPORATE_ID` | one of these two | Only principals whose access token has `custom:is_corporate=true` and this `custom:corporate_id` may sign in. Always written as a string, so a numeric id such as `1234` or `0123` keeps its digits, leading zeros included |
-| `MPASS_ALLOW_ANY_TENANT` | | `True` admits every mPass principal when `MPASS_SMB_CORPORATE_ID` is empty. See [Trade-offs](#trade-offs) |
-| `MPASS_LOGOUT_REDIRECT_URL` | yes | The portal the user menu's Log out navigates to |
-| `SESSION_COOKIE_AGE` | no | Zulip session lifetime; the bundle passes `SESSION_COOKIE_MAX_AGE_SECONDS` (432000) |
-| secret `mpass_edge_secret` | no | Optional edge secret; see [Header trust](#header-trust) |
-| `EXTERNAL_HOST` | yes | The host users see (`ZULIP_HOST`). One root-domain organization |
+| Setting                      | Required         | Meaning                                                                                                                                                                                                                     |
+| ---------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MPASS_SSO`                  | yes              | `True` turns the integration on                                                                                                                                                                                             |
+| `MPASS_DEFAULT_EMAIL_DOMAIN` | yes              | Domain for a bare mPass id (`<id>@<domain>`). Empty, every bare-id sign-in is refused. Must match the other bundle apps (`DEFAULT_EMAIL_DOMAIN`)                                                                            |
+| `MPASS_SMB_CORPORATE_ID`     | one of these two | Only principals whose access token has `custom:is_corporate=true` and this `custom:corporate_id` may sign in. Always written as a string, so a numeric id such as `1234` or `0123` keeps its digits, leading zeros included |
+| `MPASS_ALLOW_ANY_TENANT`     |                  | `True` admits every mPass principal when `MPASS_SMB_CORPORATE_ID` is empty. See [Trade-offs](#trade-offs)                                                                                                                   |
+| `MPASS_LOGOUT_REDIRECT_URL`  | yes              | The portal the user menu's Log out navigates to                                                                                                                                                                             |
+| `SESSION_COOKIE_AGE`         | no               | Zulip session lifetime; the bundle passes `SESSION_COOKIE_MAX_AGE_SECONDS` (432000)                                                                                                                                         |
+| secret `mpass_edge_secret`   | no               | Optional edge secret; see [Header trust](#header-trust)                                                                                                                                                                     |
+| `EXTERNAL_HOST`              | yes              | The host users see (`ZULIP_HOST`). One root-domain organization                                                                                                                                                             |
 
 Behind Traefik, Zulip must trust the proxy's `X-Forwarded-Proto`: the image bakes
 `[loadbalancer] ips = 172.16.0.0/12,192.168.0.0/16,10.0.0.0/8` into `zulip.conf`. Without it
@@ -148,10 +148,10 @@ apart on a status-0 events error with one probe, `fetch("/api/v1/server_settings
 
 ## ForwardAuth routing
 
-| Router | Rule | Priority | Middlewares |
-|---|---|---|---|
-| `zulip-secure` | `Host(ZULIP_HOST)`: the UI, `/accounts/login/sso/`, `/json/*` (events included), `/api/*` | 10 | `strip-auth-headers`, `security-headers`, `mpass-auth`, launchpad `verify-gate` (when on), the edge-secret injector |
-| `zulip-bypass` | `PathPrefix(/static/)`, `Path(/favicon.ico)`, `Path(/robots.txt)` | 20 | `strip-auth-headers`, `security-headers`, the edge-secret strip |
+| Router         | Rule                                                                                      | Priority | Middlewares                                                                                                         |
+| -------------- | ----------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------- |
+| `zulip-secure` | `Host(ZULIP_HOST)`: the UI, `/accounts/login/sso/`, `/json/*` (events included), `/api/*` | 10       | `strip-auth-headers`, `security-headers`, `mpass-auth`, launchpad `verify-gate` (when on), the edge-secret injector |
+| `zulip-bypass` | `PathPrefix(/static/)`, `Path(/favicon.ico)`, `Path(/robots.txt)`                         | 20       | `strip-auth-headers`, `security-headers`, the edge-secret strip                                                     |
 
 No route is framable, so `X-Frame-Options` stays everywhere. Internal API callers use
 `http://zulip` on the backend network with `Host: <ZULIP_HOST>` and `X-Forwarded-Proto: https`.
@@ -164,14 +164,14 @@ endpoint; this fork also accepts a plain-HTTP one on a private network
 (`zerver/views/upload.py`, `uploads-internal.conf`): the signed URL keeps its host and port and
 nginx proxies it over `http`, so Zulip talks to `http://seaweedfs:8333` on the backend network.
 
-| Setting | Bundle value |
-|---|---|
-| `S3_ENDPOINT_URL` | `http://seaweedfs:8333` |
+| Setting                                                            | Bundle value                                        |
+| ------------------------------------------------------------------ | --------------------------------------------------- |
+| `S3_ENDPOINT_URL`                                                  | `http://seaweedfs:8333`                             |
 | `S3_AUTH_UPLOADS_BUCKET` / `S3_AVATAR_BUCKET` / `S3_EXPORT_BUCKET` | `zulip-uploads` / `zulip-avatars` / `zulip-exports` |
-| `S3_AVATAR_PUBLIC_URL_PREFIX` | `https://s3api.<domain>/zulip-avatars/` |
-| `S3_ADDRESSING_STYLE`, `S3_SKIP_CHECKSUM`, `S3_REGION` | `path`, `True`, `us-east-1` |
-| `LOCAL_UPLOADS_DIR` | `None` |
-| secrets `s3_key`, `s3_secret_key` | a key scoped to the three buckets |
+| `S3_AVATAR_PUBLIC_URL_PREFIX`                                      | `https://s3api.<domain>/zulip-avatars/`             |
+| `S3_ADDRESSING_STYLE`, `S3_SKIP_CHECKSUM`, `S3_REGION`             | `path`, `True`, `us-east-1`                         |
+| `LOCAL_UPLOADS_DIR`                                                | `None`                                              |
+| secrets `s3_key`, `s3_secret_key`                                  | a key scoped to the three buckets                   |
 
 Only `zulip-avatars` is anonymously readable (a SeaweedFS `anonymous` identity with
 `Read:zulip-avatars`); uploads and exports refuse anonymous reads.
