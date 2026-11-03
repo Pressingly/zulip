@@ -416,7 +416,7 @@ class MpassDisplayNameTest(ZulipTestCase):
 
     def test_long_local_part_is_truncated(self) -> None:
         name = display_name_for_email("a" * 150 + "@example.com")
-        self.assertEqual(len(name), UserProfile.MAX_NAME_LENGTH)
+        self.assert_length(name, UserProfile.MAX_NAME_LENGTH)
 
     def test_unusable_local_part_falls_back(self) -> None:
         self.assertEqual(display_name_for_email("***@example.com"), "at example.com")
