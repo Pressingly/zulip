@@ -8,17 +8,21 @@ set +e
 
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
+ZULIP_SETTINGS="$scratch/settings.py"
 failures=0
 
 writeSetting() {
-    ZULIP_SETTINGS="$scratch/settings.py"
     : >"$ZULIP_SETTINGS"
     setConfigurationValue "$1" "$2" "$(declaredSettingType "$1")" >/dev/null
 }
 
 expectLine() {
     local key="$1" value="$2" expected="$3" actual
-    writeSetting "$key" "$value"
+    if ! (writeSetting "$key" "$value") >/dev/null 2>&1; then
+        echo "FAIL: $key=$(printf '%q' "$value") was refused, expected [$expected]"
+        failures=$((failures + 1))
+        return
+    fi
     actual="$(cat "$ZULIP_SETTINGS")"
     if [ "$actual" != "$expected" ]; then
         echo "FAIL: $key=$(printf '%q' "$value") wrote [$actual], expected [$expected]"
