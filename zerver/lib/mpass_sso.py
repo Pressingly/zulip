@@ -92,8 +92,12 @@ def access_token_claims(token: str) -> dict[str, object] | None:
     return claims if isinstance(claims, dict) else None
 
 
+def configured_corporate_id() -> str:
+    return str(settings.MPASS_SMB_CORPORATE_ID).strip()
+
+
 def corporate_tenant_allowed(request: HttpRequest) -> bool:
-    required_corporate_id = settings.MPASS_SMB_CORPORATE_ID.strip()
+    required_corporate_id = configured_corporate_id()
     if required_corporate_id == "":
         # Only a real True opens the gate: a string such as "no" from a
         # misconfigured environment must not.

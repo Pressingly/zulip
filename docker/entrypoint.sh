@@ -138,7 +138,7 @@ setConfigurationValue() {
     if [ -z "$type" ]; then
         case "$(echo -e "$value" | tr -d '[:space:]')" in
             [Tt][Rr][Uu][Ee] | [Ff][Aa][Ll][Ss][Ee] | [Nn]one) type="bool" ;;
-            +([0-9])) type="integer" ;;
+            0 | [1-9]*([0-9])) type="integer" ;;
             \[*\] | \(*\) | \{*\}) type="array" ;;
             *) type="string" ;;
         esac
@@ -153,6 +153,12 @@ setConfigurationValue() {
             ;;
         integer | array) line="$key = $value" ;;
         *)
+            # Secret stores often hand values over with a trailing newline.
+            value="${value%%+([$'\r\n'])}"
+            if [[ "$value" == *[$'\r\n']* ]]; then
+                echo "ERROR: Setting \"$key\" contains a newline!"
+                exit 1
+            fi
             value="${value//\\/\\\\}"
             value="${value//\'/\\\'}"
             line="$key = '$value'"
@@ -215,7 +221,21 @@ zulipConfiguration() {
             echo "WARNING: Empty var for key \"${key#SETTING_}\", skipping."
             continue
         fi
-        setConfigurationValue "${key#SETTING_}" "$value"
+        setConfigurationValue "${key#SETTING_}" "$value" "$(declaredSettingType "${key#SETTING_}")"
+    done
+}
+
+# Identifiers that may look numeric (an mPass corporate id such as 1234) but
+# must reach settings.py as strings.
+STRING_SETTINGS=(MPASS_SMB_CORPORATE_ID)
+
+declaredSettingType() {
+    local name="$1" string_setting
+    for string_setting in "${STRING_SETTINGS[@]}"; do
+        if [ "$name" = "$string_setting" ]; then
+            echo string
+            return
+        fi
     done
 }
 

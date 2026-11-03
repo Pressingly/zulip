@@ -57,7 +57,7 @@ All values are Django settings in `/etc/zulip/settings.py`; the image's entrypoi
 |---|---|---|
 | `MPASS_SSO` | yes | `True` turns the integration on |
 | `MPASS_DEFAULT_EMAIL_DOMAIN` | yes | Domain for a bare mPass id (`<id>@<domain>`). Empty, every bare-id sign-in is refused. Must match the other bundle apps (`DEFAULT_EMAIL_DOMAIN`) |
-| `MPASS_SMB_CORPORATE_ID` | one of these two | Only principals whose access token has `custom:is_corporate=true` and this `custom:corporate_id` may sign in |
+| `MPASS_SMB_CORPORATE_ID` | one of these two | Only principals whose access token has `custom:is_corporate=true` and this `custom:corporate_id` may sign in. Always written as a string, so a numeric id such as `1234` or `0123` keeps its digits, leading zeros included |
 | `MPASS_ALLOW_ANY_TENANT` | | `True` admits every mPass principal when `MPASS_SMB_CORPORATE_ID` is empty. See [Trade-offs](#trade-offs) |
 | `MPASS_LOGOUT_REDIRECT_URL` | yes | The portal the user menu's Log out navigates to |
 | `SESSION_COOKIE_AGE` | no | Zulip session lifetime; the bundle passes `SESSION_COOKIE_MAX_AGE_SECONDS` (432000) |
