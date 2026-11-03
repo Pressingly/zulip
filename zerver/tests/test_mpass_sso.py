@@ -172,7 +172,10 @@ class MpassSSOLoginTest(MpassSSOTestCase):
             ("0123", "123", 403),
         ]
         for configured_id, claimed_id, status in cases:
-            claims = {"custom:is_corporate": "true", "custom:corporate_id": claimed_id}
+            claims: dict[str, object] = {
+                "custom:is_corporate": "true",
+                "custom:corporate_id": claimed_id,
+            }
             with (
                 self.subTest(configured_id=configured_id, claimed_id=claimed_id),
                 self.mpass_settings(MPASS_SMB_CORPORATE_ID=configured_id),
