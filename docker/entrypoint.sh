@@ -17,7 +17,6 @@ ZULIP_SETTINGS=/etc/zulip/settings.py
 ZULIP_SECRETS=/etc/zulip/zulip-secrets.conf
 BAKED_CONF=/etc/zulip/zulip.conf.baked
 APPLIED_CONF=/etc/zulip/zulip.conf.applied
-BUILD_ID="$(cat "$DEPLOY_ROOT/build_id")"
 MIGRATION_MANIFEST=/usr/local/share/zulip/migration-manifest
 
 BOOT_STARTED_MS="$(date +%s%3N)"
@@ -340,13 +339,17 @@ appManagePy() {
     exec su zulip -c "$DEPLOY_ROOT/manage.py $(printf '%q ' "$command" "$@")"
 }
 
-case "${1:-}" in
-    app:run) appRun ;;
-    app:init) initialConfiguration ;;
-    app:migrate) migrateDatabase ;;
-    app:managepy)
-        shift
-        appManagePy "$@"
-        ;;
-    *) exec "$@" ;;
-esac
+# Sourced by docker/tests/test-entrypoint-settings.sh, which needs only the functions.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    BUILD_ID="$(cat "$DEPLOY_ROOT/build_id")"
+    case "${1:-}" in
+        app:run) appRun ;;
+        app:init) initialConfiguration ;;
+        app:migrate) migrateDatabase ;;
+        app:managepy)
+            shift
+            appManagePy "$@"
+            ;;
+        *) exec "$@" ;;
+    esac
+fi
