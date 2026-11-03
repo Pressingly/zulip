@@ -30,6 +30,7 @@ const popup_banners = mock_esm("../src/popup_banners", {
     close_sign_in_expired_popup_banner() {},
 });
 const edge_sign_in = mock_esm("../src/edge_sign_in", {
+    /* istanbul ignore next */
     async verdict_after_network_error() {
         return "retry";
     },
@@ -190,9 +191,14 @@ run_test("a blocked edge reload stops polling and offers a reload", async ({over
     override(popup_banners, "open_sign_in_expired_popup_banner", (callback) => {
         on_reload = callback;
     });
-    set_global("setTimeout", () => {
-        throw new Error("get_events must not be rescheduled");
-    });
+    set_global(
+        "setTimeout",
+        /* istanbul ignore next */
+        () => {
+            throw new Error("get_events must not be rescheduled");
+        },
+    );
+    /* istanbul ignore next */
     channel.get = () => {
         throw new Error("polling must stay stopped");
     };
@@ -243,6 +249,7 @@ run_test("polling is not restarted while the edge probe is pending", async ({ove
                 finish_probe = resolve;
             }),
     );
+    /* istanbul ignore next */
     channel.get = () => {
         throw new Error("polling must wait for the probe");
     };
