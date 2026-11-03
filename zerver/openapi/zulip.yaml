@@ -21556,7 +21556,7 @@ paths:
                           Present if `realm` is present in `fetch_event_types`.
 
                           Whether the server forbids email address changes for every user,
-                          administrators included. True when sign-in is mPass SSO, where the
+                          administrators included. `true` when sign-in is mPass SSO, where the
                           identity provider owns the address (Pressingly fork).
                       server_name_changes_disabled:
                         type: boolean
